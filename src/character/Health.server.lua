@@ -1,0 +1,1 @@
+-- Replaces the default "Health" regen script: healing only comes from Strategists and spawn rooms.

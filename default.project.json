@@ -1,0 +1,23 @@
+{
+  "name": "dc-allies",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Shared": { "$path": "src/shared" }
+    },
+    "ServerScriptService": {
+      "Server": { "$path": "src/server" }
+    },
+    "StarterPlayer": {
+      "$properties": { "EnableMouseLockOption": false },
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "Client": { "$path": "src/client" }
+      },
+      "StarterCharacterScripts": {
+        "$className": "StarterCharacterScripts",
+        "Health": { "$path": "src/character/Health.server.lua" }
+      }
+    }
+  }
+}

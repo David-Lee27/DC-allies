@@ -1,0 +1,4237 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="ReplicatedStorage" referent="RBX5"><Properties><string name="Name">ReplicatedStorage</string></Properties><Item class="Folder" referent="RBX4"><Properties><string name="Name">Shared</string></Properties><Item class="ModuleScript" referent="RBX1"><Properties><string name="Name">Config</string><ProtectedString name="Source"><![CDATA[-- Global game tuning. Everything balance-related lives here or in Heroes.lua.
+local Config = {}
+
+Config.GameTitle = "ALLIES: HERO CLASH"
+
+-- Teams
+Config.TeamSize = 6 -- per team; empty slots are filled with bots
+Config.FillWithBots = true
+Config.Teams = {
+	Blue = { Name = "Blue", Color = Color3.fromRGB(70, 150, 255), BrickColor = BrickColor.new("Really blue") },
+	Red = { Name = "Red", Color = Color3.fromRGB(255, 75, 75), BrickColor = BrickColor.new("Really red") },
+}
+
+-- Match flow (seconds)
+Config.HeroSelectTime = 25
+Config.PrepTime = 10
+Config.RoundEndTime = 6
+Config.MatchEndTime = 12
+Config.RoundsToWin = 2
+Config.RespawnTime = 6
+
+-- Domination point
+Config.PointRadius = 16
+Config.CaptureTime = 8 -- seconds for one hero to capture a neutral/enemy point
+Config.ScoreTime = 80 -- seconds of uninterrupted control to win a round (0 -> 100%)
+
+-- Spawn rooms
+Config.SpawnHealPerSecond = 80
+Config.SpawnEnemyDamagePerSecond = 150
+
+-- Ultimate charge
+Config.UltPerDamage = 0.06 -- ult % gained per point of damage dealt
+Config.UltPerHeal = 0.06 -- ult % gained per point of healing done
+Config.UltPassivePerSecond = 0.4
+
+Config.RoleOrder = { "Vanguard", "Duelist", "Strategist" }
+Config.RoleColors = {
+	Vanguard = Color3.fromRGB(90, 170, 255),
+	Duelist = Color3.fromRGB(255, 110, 90),
+	Strategist = Color3.fromRGB(110, 230, 140),
+}
+
+Config.Slots = { "Primary", "Ability1", "Ability2", "Ultimate" }
+Config.SlotKeys = { Primary = "LMB", Ability1 = "SHIFT", Ability2 = "E", Ultimate = "Q" }
+
+return Config
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX2"><Properties><string name="Name">Heroes</string><ProtectedString name="Source"><![CDATA[--[[
+	Hero roster. All heroes are ORIGINAL characters (archetypes only, no licensed names/logos).
+
+	Every ability has a `kind` that maps to a generic handler in server/Abilities.lua.
+	Supported kinds and their fields:
+	  hitscan    damage, range, [healAllies], [pellets, spread]
+	  projectile damage, speed, range, [size], [splashRadius, splashDamage], [healAllies]
+	  melee      damage, range, angle
+	  dash       speed, duration, [damage, radius, knockback, stun]
+	  cone       damage, range, angle, [slow, slowDuration, knockback]
+	  aoe        radius, [damage, heal, stun, knockback]                (centered on caster)
+	  zone       radius, duration, tick, [placement "aim"/"self", range, damagePerTick, healPerTick, slow, pull]
+	  buff       target "self"/"team", duration, [radius, speedMult, damageMult, damageReduction, heal]
+	  leapSlam   up, forward, radius, damage, [knockback]
+	  grapple    range, speed
+	  pull       range, damage, [stun]
+	  teleport   range
+	  wall       width, height, duration
+	  barrage    count, radius, strikeRadius, damage, interval, [placement "aim"/"self", range]
+	Every non-primary ability has `cooldown`; the Ultimate costs 100% charge instead.
+]]
+
+local Heroes = {}
+
+local function rgb(r, g, b)
+	return Color3.fromRGB(r, g, b)
+end
+
+Heroes.List = {
+	------------------------------------------------------------------ VANGUARDS
+	{
+		id = "TitanPrime",
+		name = "Titan Prime",
+		role = "Vanguard",
+		health = 650,
+		speed = 16,
+		color = rgb(40, 90, 220),
+		description = "An invulnerable powerhouse from a fallen star. Charges into fights and slams the ground with solar fury.",
+		outfit = {
+			skin = rgb(234, 184, 146), torso = rgb(35, 75, 200), arms = rgb(35, 75, 200), legs = rgb(35, 75, 200),
+			cape = rgb(200, 30, 40), emblem = { text = "T", color = rgb(220, 30, 40), bg = rgb(255, 210, 40) },
+			glow = rgb(255, 220, 120),
+		},
+		abilities = {
+			Primary = { name = "Heat Vision", kind = "hitscan", damage = 8, cooldown = 0.1, range = 70, color = rgb(255, 80, 40) },
+			Ability1 = { name = "Sky Charge", kind = "dash", cooldown = 8, speed = 90, duration = 0.4, damage = 35, radius = 7, knockback = 70, color = rgb(120, 170, 255) },
+			Ability2 = { name = "Frost Breath", kind = "cone", cooldown = 10, range = 22, angle = 70, damage = 40, slow = 0.5, slowDuration = 2.5, color = rgb(180, 230, 255) },
+			Ultimate = { name = "Solar Slam", kind = "leapSlam", up = 70, forward = 60, radius = 20, damage = 160, knockback = 90, color = rgb(255, 200, 60) },
+		},
+	},
+	{
+		id = "Valkyra",
+		name = "Valkyra",
+		role = "Vanguard",
+		health = 600,
+		speed = 17,
+		color = rgb(200, 40, 50),
+		description = "A warrior princess of a hidden island. Shield-bashes enemies, lassoes stragglers and rallies her allies.",
+		outfit = {
+			skin = rgb(205, 150, 110), torso = rgb(190, 30, 40), arms = rgb(205, 150, 110), legs = rgb(30, 50, 140),
+			helmet = "tiara", helmetColor = rgb(255, 200, 50), emblem = { text = "W", color = rgb(255, 200, 50), bg = rgb(190, 30, 40) },
+			weapon = "sword", weaponColor = rgb(210, 210, 220), shield = rgb(200, 160, 40), glow = rgb(255, 210, 120),
+		},
+		abilities = {
+			Primary = { name = "Blade Sweep", kind = "melee", damage = 38, cooldown = 0.55, range = 10, angle = 110, color = rgb(255, 230, 180) },
+			Ability1 = { name = "Shield Bash", kind = "dash", cooldown = 7, speed = 85, duration = 0.35, damage = 30, radius = 6, stun = 0.8, knockback = 30, color = rgb(255, 200, 60) },
+			Ability2 = { name = "Binding Lasso", kind = "pull", cooldown = 10, range = 35, damage = 20, stun = 0.6, color = rgb(255, 210, 60) },
+			Ultimate = { name = "Aegis Rally", kind = "buff", target = "team", radius = 30, duration = 6, damageReduction = 0.4, heal = 150, color = rgb(255, 220, 100) },
+		},
+	},
+	{
+		id = "Ironclad",
+		name = "Ironclad",
+		role = "Vanguard",
+		health = 700,
+		speed = 15,
+		color = rgb(150, 160, 175),
+		description = "Half man, half machine. Fires explosive arm-cannon shells, deploys barriers and calls down orbital strikes.",
+		outfit = {
+			skin = rgb(120, 80, 60), torso = rgb(160, 165, 175), arms = rgb(160, 165, 175), legs = rgb(90, 95, 105),
+			helmet = "visor", helmetColor = rgb(255, 50, 50), emblem = { text = "◉", color = rgb(255, 60, 60), bg = rgb(60, 65, 75) },
+			weapon = "cannon", weaponColor = rgb(80, 85, 95), glow = rgb(255, 80, 80),
+		},
+		abilities = {
+			Primary = { name = "Arm Cannon", kind = "projectile", damage = 25, cooldown = 0.45, speed = 140, range = 120, size = 1.2, splashRadius = 6, splashDamage = 15, color = rgb(255, 120, 60) },
+			Ability1 = { name = "Rocket Leap", kind = "leapSlam", cooldown = 9, up = 60, forward = 50, radius = 10, damage = 40, knockback = 40, color = rgb(255, 150, 60) },
+			Ability2 = { name = "Barrier Wall", kind = "wall", cooldown = 14, width = 14, height = 9, duration = 6, color = rgb(120, 200, 255) },
+			Ultimate = { name = "Orbital Barrage", kind = "barrage", placement = "aim", range = 80, count = 14, radius = 18, strikeRadius = 7, damage = 45, interval = 0.15, color = rgb(255, 80, 60) },
+		},
+	},
+	------------------------------------------------------------------ DUELISTS
+	{
+		id = "Nightwarden",
+		name = "Nightwarden",
+		role = "Duelist",
+		health = 275,
+		speed = 18,
+		color = rgb(45, 45, 60),
+		description = "A masked detective of the night. Throws razor wing-blades, grapples across rooftops and strikes from the shadows.",
+		outfit = {
+			skin = rgb(230, 180, 140), torso = rgb(60, 60, 70), arms = rgb(60, 60, 70), legs = rgb(60, 60, 70),
+			cape = rgb(25, 25, 30), helmet = "cowl", helmetColor = rgb(25, 25, 30),
+			emblem = { text = "◆", color = rgb(20, 20, 20), bg = rgb(255, 210, 40) }, glow = rgb(140, 140, 255),
+		},
+		abilities = {
+			Primary = { name = "Wing Blades", kind = "projectile", damage = 30, cooldown = 0.35, speed = 180, range = 120, size = 0.8, color = rgb(200, 200, 220) },
+			Ability1 = { name = "Grapple Line", kind = "grapple", cooldown = 7, range = 60, speed = 110, color = rgb(160, 160, 180) },
+			Ability2 = { name = "Smoke Bomb", kind = "zone", cooldown = 12, placement = "aim", range = 40, radius = 12, duration = 4, tick = 0.5, damagePerTick = 8, slow = 0.6, color = rgb(90, 90, 110) },
+			Ultimate = { name = "Night Raid", kind = "leapSlam", up = 80, forward = 80, radius = 16, damage = 200, knockback = 60, color = rgb(120, 110, 255) },
+		},
+	},
+	{
+		id = "Volt",
+		name = "Volt",
+		role = "Duelist",
+		health = 250,
+		speed = 20,
+		color = rgb(230, 40, 40),
+		description = "The fastest hero alive. Blurs between targets with lightning jabs and unleashes a storm around himself.",
+		outfit = {
+			skin = rgb(234, 184, 146), torso = rgb(200, 25, 30), arms = rgb(200, 25, 30), legs = rgb(200, 25, 30),
+			helmet = "hood", helmetColor = rgb(200, 25, 30), emblem = { text = "⚡", color = rgb(255, 220, 40), bg = rgb(255, 255, 255) },
+			glow = rgb(255, 220, 60),
+		},
+		abilities = {
+			Primary = { name = "Rapid Jabs", kind = "melee", damage = 14, cooldown = 0.15, range = 8, angle = 90, color = rgb(255, 230, 80) },
+			Ability1 = { name = "Speed Burst", kind = "buff", target = "self", cooldown = 8, duration = 3, speedMult = 1.8, color = rgb(255, 220, 60) },
+			Ability2 = { name = "Static Shock", kind = "aoe", cooldown = 10, radius = 12, damage = 50, stun = 0.7, color = rgb(255, 240, 120) },
+			Ultimate = { name = "Lightning Storm", kind = "barrage", placement = "self", count = 20, radius = 22, strikeRadius = 7, damage = 40, interval = 0.12, color = rgb(255, 240, 90) },
+		},
+	},
+	{
+		id = "Tidecaller",
+		name = "Tidecaller",
+		role = "Duelist",
+		health = 300,
+		speed = 17,
+		color = rgb(40, 170, 120),
+		description = "Monarch of the deep seas. Hurls trident bolts, rides the riptide and summons a crushing maelstrom.",
+		outfit = {
+			skin = rgb(234, 184, 146), torso = rgb(230, 150, 30), arms = rgb(234, 184, 146), legs = rgb(30, 140, 90),
+			helmet = "crown", helmetColor = rgb(255, 200, 40), emblem = { text = "Ψ", color = rgb(30, 140, 90), bg = rgb(230, 150, 30) },
+			weapon = "trident", weaponColor = rgb(255, 200, 40), glow = rgb(60, 220, 200),
+		},
+		abilities = {
+			Primary = { name = "Trident Bolt", kind = "projectile", damage = 40, cooldown = 0.55, speed = 150, range = 100, size = 1, color = rgb(60, 220, 220) },
+			Ability1 = { name = "Riptide Blink", kind = "teleport", cooldown = 8, range = 30, color = rgb(60, 200, 255) },
+			Ability2 = { name = "Wave Surge", kind = "cone", cooldown = 9, range = 20, angle = 80, damage = 45, knockback = 70, color = rgb(60, 180, 255) },
+			Ultimate = { name = "Maelstrom", kind = "zone", placement = "aim", range = 50, radius = 18, duration = 5, tick = 0.25, damagePerTick = 10, pull = 25, slow = 0.5, color = rgb(40, 140, 255) },
+		},
+	},
+	------------------------------------------------------------------ STRATEGISTS
+	{
+		id = "EmeraldSentinel",
+		name = "Emerald Sentinel",
+		role = "Strategist",
+		health = 275,
+		speed = 17,
+		color = rgb(40, 200, 80),
+		description = "Bearer of a ring powered by willpower. Builds light constructs to shield and heal the team.",
+		outfit = {
+			skin = rgb(170, 120, 90), torso = rgb(30, 160, 60), arms = rgb(25, 25, 30), legs = rgb(25, 25, 30),
+			helmet = "mask", helmetColor = rgb(30, 200, 70), emblem = { text = "◎", color = rgb(255, 255, 255), bg = rgb(30, 160, 60) },
+			weapon = "ring", weaponColor = rgb(60, 255, 100), glow = rgb(60, 255, 100),
+		},
+		abilities = {
+			Primary = { name = "Construct Bolts", kind = "projectile", damage = 18, healAllies = 18, cooldown = 0.25, speed = 160, range = 110, size = 0.8, color = rgb(60, 255, 100) },
+			Ability1 = { name = "Light Barrier", kind = "wall", cooldown = 12, width = 12, height = 8, duration = 5, color = rgb(60, 255, 100) },
+			Ability2 = { name = "Healing Glow", kind = "aoe", cooldown = 9, radius = 20, heal = 90, color = rgb(100, 255, 140) },
+			Ultimate = { name = "Willpower Dome", kind = "zone", placement = "self", radius = 22, duration = 6, tick = 0.5, healPerTick = 35, color = rgb(60, 255, 100) },
+		},
+	},
+	{
+		id = "Arcanist",
+		name = "Arcanist",
+		role = "Strategist",
+		health = 250,
+		speed = 17,
+		color = rgb(140, 70, 220),
+		description = "A stage magician who wields real sorcery. Arcane orbs harm foes and mend allies; runes restore the team.",
+		outfit = {
+			skin = rgb(234, 184, 146), torso = rgb(30, 30, 40), arms = rgb(30, 30, 40), legs = rgb(30, 30, 40),
+			cape = rgb(120, 50, 200), helmet = "tophat", helmetColor = rgb(25, 25, 30),
+			emblem = { text = "✦", color = rgb(190, 140, 255), bg = rgb(30, 30, 40) }, weapon = "staff", weaponColor = rgb(190, 140, 255),
+			glow = rgb(170, 110, 255),
+		},
+		abilities = {
+			Primary = { name = "Arcane Orb", kind = "projectile", damage = 22, healAllies = 30, cooldown = 0.4, speed = 110, range = 100, size = 1.2, color = rgb(190, 120, 255) },
+			Ability1 = { name = "Mystic Blink", kind = "teleport", cooldown = 7, range = 25, color = rgb(190, 120, 255) },
+			Ability2 = { name = "Mending Rune", kind = "zone", cooldown = 12, placement = "aim", range = 40, radius = 12, duration = 5, tick = 0.5, healPerTick = 15, color = rgb(200, 150, 255) },
+			Ultimate = { name = "Ankh of Renewal", kind = "aoe", radius = 30, heal = 300, color = rgb(230, 200, 255) },
+		},
+	},
+	{
+		id = "Circuit",
+		name = "Circuit",
+		role = "Strategist",
+		health = 275,
+		speed = 17,
+		color = rgb(255, 170, 30),
+		description = "A teen tech genius in a jet-powered suit. Sonic blasts hurt enemies and patch up friends; Overclock supercharges the team.",
+		outfit = {
+			skin = rgb(160, 110, 80), torso = rgb(255, 160, 30), arms = rgb(60, 60, 70), legs = rgb(60, 60, 70),
+			helmet = "visor", helmetColor = rgb(80, 220, 255), emblem = { text = "⚙", color = rgb(60, 60, 70), bg = rgb(255, 160, 30) },
+			weapon = "cannon", weaponColor = rgb(255, 160, 30), glow = rgb(80, 220, 255),
+		},
+		abilities = {
+			Primary = { name = "Sonic Blaster", kind = "hitscan", damage = 10, healAllies = 10, cooldown = 0.12, range = 60, color = rgb(80, 220, 255) },
+			Ability1 = { name = "Rocket Boost", kind = "dash", cooldown = 6, speed = 80, duration = 0.35, color = rgb(255, 170, 60) },
+			Ability2 = { name = "Repair Pulse", kind = "aoe", cooldown = 8, radius = 18, heal = 70, color = rgb(80, 220, 255) },
+			Ultimate = { name = "Overclock", kind = "buff", target = "team", radius = 35, duration = 8, speedMult = 1.3, damageMult = 1.3, heal = 100, color = rgb(255, 200, 60) },
+		},
+	},
+}
+
+Heroes.ById = {}
+for _, hero in ipairs(Heroes.List) do
+	Heroes.ById[hero.id] = hero
+end
+
+function Heroes.Get(id)
+	return Heroes.ById[id]
+end
+
+function Heroes.IsHealing(ability)
+	return (ability.heal or ability.healPerTick or ability.healAllies) ~= nil
+end
+
+return Heroes
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX3"><Properties><string name="Name">Util</string><ProtectedString name="Source"><![CDATA[local Util = {}
+
+-- Create an instance: Util.make("Frame", { Size = ..., Parent = ... }, { children... })
+function Util.make(className, props, children)
+	local inst = Instance.new(className)
+	local parent
+	for key, value in pairs(props or {}) do
+		if key == "Parent" then
+			parent = value
+		else
+			inst[key] = value
+		end
+	end
+	for _, child in ipairs(children or {}) do
+		child.Parent = inst
+	end
+	if parent then
+		inst.Parent = parent
+	end
+	return inst
+end
+
+function Util.corner(radius)
+	return Util.make("UICorner", { CornerRadius = UDim.new(0, radius or 8) })
+end
+
+function Util.stroke(color, thickness, transparency)
+	return Util.make("UIStroke", {
+		Color = color or Color3.new(0, 0, 0),
+		Thickness = thickness or 1,
+		Transparency = transparency or 0,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+	})
+end
+
+function Util.flat(v)
+	return Vector3.new(v.X, 0, v.Z)
+end
+
+function Util.isFiniteVector(v)
+	return typeof(v) == "Vector3" and v.X == v.X and v.Y == v.Y and v.Z == v.Z
+		and math.abs(v.X) < 1e5 and math.abs(v.Y) < 1e5 and math.abs(v.Z) < 1e5
+end
+
+function Util.now()
+	return workspace:GetServerTimeNow()
+end
+
+return Util
+]]></ProtectedString></Properties></Item></Item></Item><Item class="ServerScriptService" referent="RBX16"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="Folder" referent="RBX15"><Properties><string name="Name">Server</string></Properties><Item class="ModuleScript" referent="RBX6"><Properties><string name="Name">Abilities</string><ProtectedString name="Source"><![CDATA[-- Generic ability handlers. Each hero ability in Heroes.lua points at one of these by `kind`.
+-- A handler returns `false` when nothing happened (e.g. grapple hit nothing) so no cooldown is spent.
+local Debris = game:GetService("Debris")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Heroes = require(ReplicatedStorage.Shared.Heroes)
+local Util = require(ReplicatedStorage.Shared.Util)
+local Combatants = require(script.Parent.Combatants)
+local Combat = require(script.Parent.Combat)
+
+local Abilities = {}
+local Kinds = {}
+
+------------------------------------------------------------------ helpers
+local function headPos(c)
+	local head = c.model and c.model:FindFirstChild("Head")
+	return head and head.Position or c.root.Position + Vector3.new(0, 1.5, 0)
+end
+
+local function aimDirection(c, origin, aimPos)
+	local d = aimPos - origin
+	if d.Magnitude < 1 then
+		d = c.root.CFrame.LookVector
+	end
+	return d.Unit
+end
+
+local function flatDirection(c, aimPos)
+	local d = Util.flat(aimPos - c.root.Position)
+	if d.Magnitude < 0.5 then
+		d = Util.flat(c.root.CFrame.LookVector)
+	end
+	return d.Unit
+end
+
+local function worldParams()
+	local exclude = { Combat.EffectsFolder() }
+	for _, c in pairs(Combatants.All) do
+		if c.model then
+			table.insert(exclude, c.model)
+		end
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = exclude
+	return params
+end
+
+local function groundAt(pos)
+	local result = workspace:Raycast(pos + Vector3.new(0, 15, 0), Vector3.new(0, -80, 0), worldParams())
+	return result and result.Position or Vector3.new(pos.X, 0, pos.Z)
+end
+
+local function clampToRange(c, aimPos, range)
+	local from = c.root.Position
+	local d = aimPos - from
+	if d.Magnitude > range then
+		aimPos = from + d.Unit * range
+	end
+	return groundAt(aimPos)
+end
+
+local function zonePart(pos, radius, color, height)
+	local p = Instance.new("Part")
+	p.Shape = Enum.PartType.Cylinder
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	p.Material = Enum.Material.Neon
+	p.Color = color
+	p.Transparency = 0.65
+	p.Size = Vector3.new(height or 0.4, radius * 2, radius * 2)
+	p.CFrame = CFrame.new(pos) * CFrame.Angles(0, 0, math.rad(90))
+	p.Parent = Combat.EffectsFolder()
+	return p
+end
+
+------------------------------------------------------------------ kinds
+function Kinds.hitscan(c, a, aimPos)
+	local origin = headPos(c)
+	local baseDir = aimDirection(c, origin, aimPos)
+	local params = Combat.RayParams(c, a.healAllies ~= nil)
+	for _ = 1, a.pellets or 1 do
+		local dir = baseDir
+		if a.spread then
+			local s = math.rad(a.spread)
+			dir = (CFrame.lookAt(Vector3.zero, baseDir) * CFrame.Angles((math.random() - 0.5) * s, (math.random() - 0.5) * s, 0)).LookVector
+		end
+		local result = workspace:Raycast(origin, dir * a.range, params)
+		local endPos = result and result.Position or origin + dir * a.range
+		if result then
+			Combat.ApplyHit(c, result.Instance, a)
+		end
+		Combat.FX("beam", { from = origin, to = endPos, color = a.color, width = 0.25, life = 0.08, owner = c.model })
+	end
+end
+
+function Kinds.projectile(c, a, aimPos)
+	local origin = headPos(c)
+	local dir = aimDirection(c, origin, aimPos)
+	Combat.FireProjectile(c, origin + dir * 1.5, dir, a)
+end
+
+function Kinds.melee(c, a, aimPos)
+	local pos = c.root.Position
+	local forward = flatDirection(c, aimPos)
+	local cosHalf = math.cos(math.rad(a.angle / 2))
+	Combat.InRadius(pos, a.range + 2, function(t)
+		if t.team ~= c.team then
+			local d = Util.flat(t.root.Position - pos)
+			if d.Magnitude < 3 or (d.Magnitude <= a.range and forward:Dot(d.Unit) >= cosHalf) then
+				Combat.Damage(c, t, a.damage, a.name)
+			end
+		end
+	end)
+	Combat.FX("slash", { cf = CFrame.lookAt(pos, pos + forward), range = a.range, color = a.color })
+end
+
+function Kinds.dash(c, a, aimPos)
+	local dir = flatDirection(c, aimPos)
+	Combat.Push(c, dir * a.speed + Vector3.new(0, 2, 0), a.duration)
+	Combat.FX("trail", { model = c.model, color = a.color, life = a.duration + 0.2 })
+	if a.damage or a.stun then
+		task.spawn(function()
+			local hit = {}
+			local t0 = os.clock()
+			while os.clock() - t0 < a.duration + 0.05 and c.alive do
+				Combat.InRadius(c.root.Position, a.radius or 6, function(t)
+					if t.team ~= c.team and not hit[t] then
+						hit[t] = true
+						Combat.Damage(c, t, a.damage or 0, a.name)
+						if a.stun then
+							Combat.AddStatus(t, "stun", 1, a.stun)
+						end
+						if a.knockback then
+							Combat.Knockback(c.root.Position - dir * 2, t, a.knockback)
+						end
+					end
+				end)
+				task.wait(0.03)
+			end
+		end)
+	end
+end
+
+function Kinds.cone(c, a, aimPos)
+	local pos = c.root.Position
+	local forward = flatDirection(c, aimPos)
+	local cosHalf = math.cos(math.rad(a.angle / 2))
+	Combat.InRadius(pos, a.range, function(t)
+		if t.team ~= c.team then
+			local d = Util.flat(t.root.Position - pos)
+			if d.Magnitude < 2 or forward:Dot(d.Unit) >= cosHalf then
+				Combat.Damage(c, t, a.damage or 0, a.name)
+				if a.slow then
+					Combat.AddStatus(t, "slow", a.slow, a.slowDuration or 2)
+				end
+				if a.knockback then
+					Combat.Knockback(pos, t, a.knockback)
+				end
+			end
+		end
+	end)
+	Combat.FX("cone", { cf = CFrame.lookAt(pos, pos + forward), range = a.range, angle = a.angle, color = a.color })
+end
+
+function Kinds.aoe(c, a)
+	local pos = c.root.Position
+	Combat.InRadius(pos, a.radius, function(t)
+		if t.team ~= c.team then
+			if a.damage then
+				Combat.Damage(c, t, a.damage, a.name)
+			end
+			if a.stun then
+				Combat.AddStatus(t, "stun", 1, a.stun)
+			end
+			if a.knockback then
+				Combat.Knockback(pos, t, a.knockback)
+			end
+		elseif a.heal then
+			Combat.Heal(c, t, a.heal)
+			Combat.FX("aura", { model = t.model, color = a.color, life = 0.6 })
+		end
+	end)
+	Combat.FX("burst", { pos = pos, radius = a.radius, color = a.color })
+end
+
+function Kinds.zone(c, a, aimPos)
+	local center
+	if a.placement == "self" then
+		center = groundAt(c.root.Position)
+	else
+		center = clampToRange(c, aimPos, a.range or 40)
+	end
+	local visual = zonePart(center + Vector3.new(0, 0.2, 0), a.radius, a.color)
+	local dome = zonePart(center, a.radius, a.color, a.radius * 0.6)
+	dome.Transparency = 0.85
+	Debris:AddItem(visual, a.duration)
+	Debris:AddItem(dome, a.duration)
+	task.spawn(function()
+		local t0 = os.clock()
+		while os.clock() - t0 < a.duration and not c.removed do
+			Combat.InRadius(center, a.radius, function(t)
+				if math.abs(t.root.Position.Y - center.Y) > 12 then
+					return
+				end
+				if t.team ~= c.team then
+					if a.damagePerTick then
+						Combat.Damage(c, t, a.damagePerTick, a.name)
+					end
+					if a.slow then
+						Combat.AddStatus(t, "slow", a.slow, a.tick + 0.1)
+					end
+					if a.pull then
+						local d = Util.flat(center - t.root.Position)
+						if d.Magnitude > 2 then
+							Combat.Push(t, d.Unit * a.pull, math.min(a.tick, 0.2))
+						end
+					end
+				elseif a.healPerTick then
+					Combat.Heal(c, t, a.healPerTick)
+				end
+			end)
+			task.wait(a.tick)
+		end
+	end)
+end
+
+function Kinds.buff(c, a)
+	local targets = {}
+	if a.target == "team" then
+		Combat.InRadius(c.root.Position, a.radius or 30, function(t)
+			if t.team == c.team then
+				table.insert(targets, t)
+			end
+		end)
+	else
+		targets = { c }
+	end
+	for _, t in ipairs(targets) do
+		if a.speedMult then
+			Combat.AddStatus(t, "speed", a.speedMult, a.duration)
+		end
+		if a.damageMult then
+			Combat.AddStatus(t, "damageMult", a.damageMult, a.duration)
+		end
+		if a.damageReduction then
+			Combat.AddStatus(t, "damageReduction", a.damageReduction, a.duration)
+		end
+		if a.heal then
+			Combat.Heal(c, t, a.heal)
+		end
+		Combat.FX("aura", { model = t.model, color = a.color, life = a.duration })
+	end
+	if a.target == "team" then
+		Combat.FX("burst", { pos = c.root.Position, radius = a.radius or 30, color = a.color })
+	end
+end
+
+function Kinds.leapSlam(c, a, aimPos)
+	local dir = flatDirection(c, aimPos)
+	Combat.Push(c, dir * a.forward + Vector3.new(0, a.up, 0), 0.25)
+	Combat.FX("trail", { model = c.model, color = a.color, life = 1.2 })
+	task.spawn(function()
+		local t0 = os.clock()
+		task.wait(0.4)
+		local params = worldParams()
+		while c.alive and os.clock() - t0 < 2.5 do
+			if workspace:Raycast(c.root.Position, Vector3.new(0, -4.5, 0), params) then
+				break -- landed
+			end
+			task.wait()
+		end
+		if not c.alive then
+			return
+		end
+		local pos = c.root.Position
+		Combat.InRadius(pos, a.radius, function(t)
+			if t.team ~= c.team then
+				Combat.Damage(c, t, a.damage, a.name)
+				if a.knockback then
+					Combat.Knockback(pos, t, a.knockback)
+				end
+			end
+		end)
+		Combat.FX("burst", { pos = pos - Vector3.new(0, 2.5, 0), radius = a.radius, color = a.color, shake = true })
+	end)
+end
+
+function Kinds.grapple(c, a, aimPos)
+	local origin = headPos(c)
+	local dir = aimDirection(c, origin, aimPos)
+	local result = workspace:Raycast(origin, dir * a.range, worldParams())
+	if not result then
+		return false
+	end
+	local target = result.Position - dir * 2 + Vector3.new(0, 2, 0)
+	local dist = (target - c.root.Position).Magnitude
+	local duration = math.clamp(dist / a.speed, 0.1, 0.8)
+	Combat.Push(c, (target - c.root.Position).Unit * a.speed, duration)
+	Combat.FX("beam", { from = origin, to = result.Position, color = a.color, width = 0.12, life = duration, owner = c.model, follow = true })
+	return true
+end
+
+function Kinds.pull(c, a, aimPos)
+	local origin = headPos(c)
+	local dir = aimDirection(c, origin, aimPos)
+	local result = workspace:Spherecast(origin, 1.5, dir * a.range, Combat.RayParams(c, false))
+	local endPos = result and result.Position or origin + dir * a.range
+	Combat.FX("beam", { from = origin, to = endPos, color = a.color, width = 0.2, life = 0.35, owner = c.model })
+	if not result then
+		return
+	end
+	local t = Combatants.FromPart(result.Instance)
+	if t and t.team ~= c.team then
+		Combat.Damage(c, t, a.damage or 0, a.name)
+		if a.stun then
+			Combat.AddStatus(t, "stun", 1, a.stun)
+		end
+		local dest = c.root.Position + Util.flat(t.root.Position - c.root.Position).Unit * 4
+		Combat.Push(t, (dest - t.root.Position) / 0.25 + Vector3.new(0, 8, 0), 0.25)
+	end
+end
+
+function Kinds.teleport(c, a, aimPos)
+	local dir = flatDirection(c, aimPos)
+	local from = c.root.Position
+	local result = workspace:Raycast(from, dir * a.range, worldParams())
+	local dest = result and (result.Position - dir * 2.5) or (from + dir * a.range)
+	Combat.FX("burst", { pos = from, radius = 4, color = a.color })
+	c.model:PivotTo(CFrame.lookAt(dest, dest + dir))
+	Combat.FX("burst", { pos = dest, radius = 4, color = a.color })
+end
+
+function Kinds.wall(c, a, aimPos)
+	local dir = flatDirection(c, aimPos)
+	local base = groundAt(c.root.Position + dir * 9)
+	local wallPart = Instance.new("Part")
+	wallPart.Name = "Barrier"
+	wallPart.Anchored = true
+	wallPart.Size = Vector3.new(a.width, a.height, 1.5)
+	wallPart.CFrame = CFrame.lookAt(base + Vector3.new(0, a.height / 2, 0), base + Vector3.new(0, a.height / 2, 0) + dir)
+	wallPart.Color = a.color
+	wallPart.Material = Enum.Material.ForceField
+	wallPart.Transparency = 0.1
+	wallPart:SetAttribute("Team", c.team)
+	wallPart.Parent = Combat.ConstructsFolder()
+	Debris:AddItem(wallPart, a.duration)
+	Combat.FX("burst", { pos = base, radius = a.width / 2, color = a.color })
+end
+
+function Kinds.barrage(c, a, aimPos)
+	local fixedCenter = a.placement ~= "self" and clampToRange(c, aimPos, a.range or 80) or nil
+	task.spawn(function()
+		for _ = 1, a.count do
+			if not c.alive and a.placement == "self" then
+				break
+			end
+			local center = fixedCenter or groundAt(c.root.Position)
+			local ang = math.random() * math.pi * 2
+			local r = math.sqrt(math.random()) * a.radius
+			local pos = groundAt(center + Vector3.new(math.cos(ang) * r, 0, math.sin(ang) * r))
+			Combat.FX("strike", { pos = pos, radius = a.strikeRadius, color = a.color })
+			Combat.InRadius(pos, a.strikeRadius, function(t)
+				if t.team ~= c.team then
+					Combat.Damage(c, t, a.damage, a.name)
+				end
+			end)
+			task.wait(a.interval)
+		end
+	end)
+end
+
+------------------------------------------------------------------ entry point
+function Abilities.Use(c, slot, aimPos)
+	if not c.alive or not c.heroId or not c.root or not c.humanoid or c.humanoid.Health <= 0 then
+		return false
+	end
+	if Combat.IsStunned(c) then
+		return false
+	end
+	local hero = Heroes.Get(c.heroId)
+	local a = hero and hero.abilities[slot]
+	if not a then
+		return false
+	end
+	if not Util.isFiniteVector(aimPos) then
+		aimPos = c.root.Position + c.root.CFrame.LookVector * 50
+	end
+	if slot == "Ultimate" then
+		if c.ult < 100 then
+			return false
+		end
+	elseif not Combatants.IsReady(c, slot) then
+		return false
+	end
+
+	local handler = Kinds[a.kind]
+	if not handler then
+		warn("Unknown ability kind", a.kind)
+		return false
+	end
+	local ok, result = pcall(handler, c, a, aimPos)
+	if not ok then
+		warn("Ability error", hero.name, slot, result)
+		return false
+	end
+	if result == false then
+		return false
+	end
+
+	if slot == "Ultimate" then
+		Combatants.AddUlt(c, -100)
+		Combat.NotifyAll("ultimate", { name = c.name, team = c.team, hero = hero.name, ability = a.name })
+	else
+		Combatants.SetCooldown(c, slot, a.cooldown or 1)
+	end
+	return true
+end
+
+return Abilities
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX7"><Properties><string name="Name">Bots</string><ProtectedString name="Source"><![CDATA[-- Simple bot AI so matches are playable solo: push the objective, fight what they see, use kits sensibly.
+local PathfindingService = game:GetService("PathfindingService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Heroes = require(ReplicatedStorage.Shared.Heroes)
+local Util = require(ReplicatedStorage.Shared.Util)
+local Combatants = require(script.Parent.Combatants)
+local Combat = require(script.Parent.Combat)
+local Abilities = require(script.Parent.Abilities)
+local MapBuilder = require(script.Parent.MapBuilder)
+
+local Bots = {}
+
+Bots.Names = {
+	"Ace", "Blitz", "Cobalt", "Dyna", "Echo", "Flux", "Grit", "Halo", "Ion", "Jinx", "Kilo", "Lumen",
+	"Mako", "Nova", "Onyx", "Pike", "Quill", "Rook", "Sable", "Talon", "Umbra", "Vex", "Wren", "Zed",
+}
+
+local ANIMS = {
+	idle = "rbxassetid://507766666",
+	walk = "rbxassetid://507777826",
+	run = "rbxassetid://507767714",
+	jump = "rbxassetid://507765000",
+	fall = "rbxassetid://507767968",
+}
+
+local THINK_INTERVAL = 0.15
+local VIEW_RANGE = 150
+
+local matchState = nil
+local function state()
+	matchState = matchState or ReplicatedStorage:FindFirstChild("MatchState")
+	return matchState and matchState:GetAttribute("State") or ""
+end
+
+------------------------------------------------------------------ animation
+local function setupAnimations(c)
+	local humanoid = c.humanoid
+	local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator")
+	animator.Parent = humanoid
+	local tracks = {}
+	for name, id in pairs(ANIMS) do
+		local anim = Instance.new("Animation")
+		anim.AnimationId = id
+		local ok, track = pcall(function()
+			return animator:LoadAnimation(anim)
+		end)
+		if ok then
+			track.Looped = name ~= "jump"
+			tracks[name] = track
+		end
+	end
+	local current
+	local function play(name, speed)
+		local track = tracks[name]
+		if not track then
+			return
+		end
+		if current ~= track then
+			if current then
+				current:Stop(0.15)
+			end
+			current = track
+			track:Play(0.15)
+		end
+		track:AdjustSpeed(speed or 1)
+	end
+	play("idle")
+	humanoid.Running:Connect(function(speed)
+		if humanoid.FloorMaterial == Enum.Material.Air then
+			return
+		end
+		if speed > 0.5 then
+			play("run", math.clamp(speed / 16, 0.6, 1.8))
+		else
+			play("idle")
+		end
+	end)
+	humanoid.StateChanged:Connect(function(_, new)
+		if new == Enum.HumanoidStateType.Jumping then
+			play("jump")
+		elseif new == Enum.HumanoidStateType.Freefall then
+			play("fall")
+		end
+	end)
+end
+
+------------------------------------------------------------------ perception helpers
+local function head(c)
+	local h = c.model and c.model:FindFirstChild("Head")
+	return h and h.Position or c.root.Position
+end
+
+local function canSee(c, t)
+	return Combat.HasLineOfSight(head(c), head(t), { c.model, t.model, workspace:FindFirstChild("Bots") })
+end
+
+local function findTarget(c)
+	local best, bestScore
+	Combatants.ForEachAlive(function(t)
+		if t.team ~= c.team then
+			local d = (t.root.Position - c.root.Position).Magnitude
+			if d <= VIEW_RANGE and canSee(c, t) then
+				local score = d + (t.humanoid.Health / t.humanoid.MaxHealth) * 20
+				if not bestScore or score < bestScore then
+					best, bestScore = t, score
+				end
+			end
+		end
+	end)
+	return best
+end
+
+local function lowestAlly(c, radius, threshold)
+	local best, bestRatio
+	Combat.InRadius(c.root.Position, radius, function(t)
+		if t.team == c.team then
+			local ratio = t.humanoid.Health / t.humanoid.MaxHealth
+			if ratio < threshold and (not bestRatio or ratio < bestRatio) then
+				best, bestRatio = t, ratio
+			end
+		end
+	end)
+	return best
+end
+
+local function countEnemiesNear(c, pos, radius)
+	local n = 0
+	Combat.InRadius(pos, radius, function(t)
+		if t.team ~= c.team then
+			n += 1
+		end
+	end)
+	return n
+end
+
+------------------------------------------------------------------ ability decisions
+-- returns aimPos if the bot should use the ability now, else nil
+local function decide(c, a, target, dist, isUlt)
+	local hpRatio = c.humanoid.Health / c.humanoid.MaxHealth
+	local tpos = target and target.root.Position
+	local kind = a.kind
+	if kind == "hitscan" or kind == "projectile" then
+		if target and dist <= a.range then
+			return tpos
+		end
+	elseif kind == "melee" then
+		if target and dist <= a.range + 1 then
+			return tpos
+		end
+	elseif kind == "dash" then
+		if a.damage or a.stun then
+			if target and dist > 4 and dist <= a.speed * a.duration + 2 then
+				return tpos
+			end
+		elseif target and hpRatio < 0.35 then
+			return c.root.Position + (c.root.Position - tpos) -- escape
+		elseif not target and math.random() < 0.04 then
+			return MapBuilder.Info.PointCenter
+		end
+	elseif kind == "cone" then
+		if target and dist <= a.range * 0.9 then
+			return tpos
+		end
+	elseif kind == "aoe" then
+		if a.heal then
+			local need = isUlt and 0.45 or 0.7
+			local ally = lowestAlly(c, a.radius, need)
+			if ally then
+				return ally.root.Position
+			end
+		elseif target and countEnemiesNear(c, c.root.Position, a.radius * 0.8) >= 1 then
+			return tpos
+		end
+	elseif kind == "zone" then
+		if a.healPerTick then
+			local ally = lowestAlly(c, a.placement == "self" and a.radius or (a.range or 40), isUlt and 0.5 or 0.7)
+			if ally then
+				return ally.root.Position
+			end
+		elseif target and dist <= (a.range or 40) then
+			return tpos
+		end
+	elseif kind == "buff" then
+		if a.target == "team" then
+			local ally = lowestAlly(c, a.radius or 30, 0.6)
+			if target and (ally or dist < 30) then
+				return tpos
+			end
+		elseif target and (dist < 45 or hpRatio < 0.4) then
+			return tpos
+		end
+	elseif kind == "leapSlam" then
+		if target and dist > 6 and dist <= (a.forward * 0.7) then
+			if countEnemiesNear(c, tpos, a.radius) >= 1 then
+				return tpos
+			end
+		end
+	elseif kind == "grapple" then
+		if target and dist > 20 and dist < a.range then
+			return tpos - Vector3.new(0, 2.5, 0)
+		end
+	elseif kind == "pull" then
+		if target and dist > 8 and dist <= a.range * 0.9 then
+			return tpos
+		end
+	elseif kind == "teleport" then
+		if target and hpRatio < 0.4 then
+			return c.root.Position + (c.root.Position - tpos)
+		elseif target and dist > 12 and dist < a.range + 5 and Heroes.Get(c.heroId).role == "Duelist" then
+			return tpos
+		end
+	elseif kind == "wall" then
+		if target and hpRatio < 0.6 and dist < 50 then
+			return tpos
+		end
+	elseif kind == "barrage" then
+		if a.placement == "self" then
+			if countEnemiesNear(c, c.root.Position, a.radius) >= 1 then
+				return c.root.Position
+			end
+		elseif target and dist <= (a.range or 80) then
+			return tpos
+		end
+	end
+	return nil
+end
+
+------------------------------------------------------------------ brain
+local function preferredDistance(hero)
+	local p = hero.abilities.Primary
+	if p.kind == "melee" then
+		return 3
+	end
+	if hero.role == "Strategist" then
+		return math.min(p.range * 0.5, 30)
+	end
+	return math.min(p.range * 0.4, 28)
+end
+
+function Bots.Attach(c)
+	local token = c.spawnToken
+	local model = c.model
+	local humanoid = c.humanoid
+	local root = c.root
+	local hero = Heroes.Get(c.heroId)
+	setupAnimations(c)
+
+	local brain = {
+		target = nil,
+		targetSince = 0,
+		nextTargetScan = 0,
+		destination = nil,
+		nextDestPick = 0,
+		waypoints = nil,
+		waypointIndex = 0,
+		nextPath = 0,
+		strafeSign = 1,
+		nextStrafeFlip = 0,
+		lastPos = root.Position,
+		stuckTime = 0,
+	}
+	local path = PathfindingService:CreatePath({ AgentRadius = 2.5, AgentHeight = 6, AgentCanJump = true, WaypointSpacing = 8 })
+
+	local function alive()
+		return c.spawnToken == token and c.alive and c.model == model and humanoid.Health > 0 and not c.removed
+	end
+
+	local function walkTo(dest, usePath)
+		if not usePath then
+			brain.waypoints = nil
+			humanoid:MoveTo(dest)
+			return
+		end
+		local now = os.clock()
+		if not brain.waypoints or now >= brain.nextPath or (brain.destination and (brain.destination - dest).Magnitude > 12) then
+			brain.destination = dest
+			brain.nextPath = now + 1.5
+			local ok = pcall(function()
+				path:ComputeAsync(root.Position, dest)
+			end)
+			if ok and path.Status == Enum.PathStatus.Success then
+				brain.waypoints = path:GetWaypoints()
+				brain.waypointIndex = math.min(2, #brain.waypoints)
+			else
+				brain.waypoints = nil
+			end
+		end
+		if brain.waypoints and brain.waypoints[brain.waypointIndex] then
+			local wp = brain.waypoints[brain.waypointIndex]
+			humanoid:MoveTo(wp.Position)
+			if wp.Action == Enum.PathWaypointAction.Jump then
+				humanoid.Jump = true
+			end
+			if Util.flat(wp.Position - root.Position).Magnitude < 4 then
+				brain.waypointIndex += 1
+			end
+		else
+			humanoid:MoveTo(dest)
+		end
+	end
+
+	task.spawn(function()
+		task.wait(math.random() * 0.5)
+		while alive() do
+			local now = os.clock()
+			local s = state()
+
+			if s == "InProgress" or s == "Preparing" or s == "RoundEnd" then
+				-- target acquisition
+				if now >= brain.nextTargetScan then
+					brain.nextTargetScan = now + 0.4
+					local t = findTarget(c)
+					if t ~= brain.target then
+						brain.target = t
+						brain.targetSince = now
+					end
+				end
+				local target = brain.target
+				if target and (not target.alive or not target.root or not target.root.Parent) then
+					target = nil
+					brain.target = nil
+				end
+				local dist = target and (target.root.Position - root.Position).Magnitude or math.huge
+
+				-- movement
+				if s == "Preparing" then
+					humanoid:MoveTo(root.Position)
+				elseif target and dist < 70 then
+					if now >= brain.nextStrafeFlip then
+						brain.nextStrafeFlip = now + math.random(10, 25) / 10
+						brain.strafeSign = -brain.strafeSign
+					end
+					local away = Util.flat(root.Position - target.root.Position)
+					away = away.Magnitude > 0.1 and away.Unit or Vector3.new(1, 0, 0)
+					local side = Vector3.new(-away.Z, 0, away.X) * brain.strafeSign
+					local want = target.root.Position + away * preferredDistance(hero) + side * 6
+					walkTo(want, false)
+				else
+					if now >= brain.nextDestPick or not brain.objective then
+						brain.nextDestPick = now + 4
+						local ang = math.random() * math.pi * 2
+						local r = math.random() * Config.PointRadius * 0.6
+						brain.objective = MapBuilder.Info.PointCenter + Vector3.new(math.cos(ang) * r, 0, math.sin(ang) * r)
+					end
+					walkTo(brain.objective, true)
+				end
+
+				-- facing
+				if target then
+					humanoid.AutoRotate = false
+					local look = Vector3.new(target.root.Position.X, root.Position.Y, target.root.Position.Z)
+					if (look - root.Position).Magnitude > 0.5 then
+						root.CFrame = CFrame.lookAt(root.Position, look)
+					end
+				else
+					humanoid.AutoRotate = true
+				end
+
+				-- stuck detection
+				local moved = (root.Position - brain.lastPos).Magnitude
+				brain.lastPos = root.Position
+				if s ~= "Preparing" and moved < 0.3 and humanoid.MoveDirection.Magnitude > 0.1 then
+					brain.stuckTime += THINK_INTERVAL
+					if brain.stuckTime > 0.8 then
+						humanoid.Jump = true
+						brain.stuckTime = 0
+						brain.waypoints = nil
+					end
+				else
+					brain.stuckTime = 0
+				end
+
+				-- combat (small reaction delay after acquiring a target)
+				if s ~= "Preparing" and now - brain.targetSince > 0.35 then
+					for _, slot in ipairs({ "Ultimate", "Ability1", "Ability2", "Primary" }) do
+						local a = hero.abilities[slot]
+						local ready = (slot == "Ultimate" and c.ult >= 100) or (slot ~= "Ultimate" and Combatants.IsReady(c, slot))
+						if ready then
+							local aim = decide(c, a, target, dist, slot == "Ultimate")
+							if aim then
+								if target and aim == target.root.Position then
+									local miss = dist * 0.035
+									aim += Vector3.new((math.random() - 0.5) * miss, 1 + (math.random() - 0.5) * miss, (math.random() - 0.5) * miss)
+								end
+								if Abilities.Use(c, slot, aim) and slot ~= "Primary" then
+									break
+								end
+							end
+						end
+					end
+				end
+			else
+				humanoid:MoveTo(root.Position)
+			end
+			task.wait(THINK_INTERVAL)
+		end
+	end)
+end
+
+return Bots
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX8"><Properties><string name="Name">Combat</string><ProtectedString name="Source"><![CDATA[-- Core combat: damage/heal, status effects, knockback, hit detection and server-simulated projectiles.
+local Debris = game:GetService("Debris")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Heroes = require(ReplicatedStorage.Shared.Heroes)
+local Combatants = require(script.Parent.Combatants)
+
+local Combat = {}
+
+local remotes
+local effectsFolder -- non-hittable server visuals (zones, telegraphs)
+local constructsFolder -- hittable constructs (walls)
+local projectiles = {}
+local nextProjectileId = 0
+
+function Combat.Init(remoteFolder)
+	remotes = remoteFolder
+	effectsFolder = Instance.new("Folder")
+	effectsFolder.Name = "Effects"
+	effectsFolder.Parent = workspace
+	constructsFolder = Instance.new("Folder")
+	constructsFolder.Name = "Constructs"
+	constructsFolder.Parent = workspace
+
+	RunService.Heartbeat:Connect(function(dt)
+		Combat.StepProjectiles(dt)
+		Combat.UpdateStatuses()
+	end)
+end
+
+function Combat.EffectsFolder()
+	return effectsFolder
+end
+
+function Combat.ConstructsFolder()
+	return constructsFolder
+end
+
+function Combat.ClearConstructs()
+	effectsFolder:ClearAllChildren()
+	constructsFolder:ClearAllChildren()
+	table.clear(projectiles)
+end
+
+------------------------------------------------------------------ networking helpers
+function Combat.FX(kind, data)
+	remotes.FX:FireAllClients(kind, data)
+end
+
+function Combat.Notify(c, kind, data)
+	if c and c.player then
+		remotes.Notify:FireClient(c.player, kind, data)
+	end
+end
+
+function Combat.NotifyAll(kind, data)
+	remotes.Notify:FireAllClients(kind, data)
+end
+
+------------------------------------------------------------------ statuses
+-- types: "slow" / "speed" (walk speed multiplier), "stun", "damageMult", "damageReduction"
+function Combat.AddStatus(c, kind, value, duration)
+	if not c.alive then
+		return
+	end
+	table.insert(c.statuses, { kind = kind, value = value, expires = os.clock() + duration })
+end
+
+function Combat.StatusProduct(c, kind)
+	local m = 1
+	for _, s in ipairs(c.statuses) do
+		if s.kind == kind then
+			m *= s.value
+		end
+	end
+	return m
+end
+
+function Combat.StatusMax(c, kind)
+	local m = 0
+	for _, s in ipairs(c.statuses) do
+		if s.kind == kind and s.value > m then
+			m = s.value
+		end
+	end
+	return m
+end
+
+function Combat.IsStunned(c)
+	for _, s in ipairs(c.statuses) do
+		if s.kind == "stun" then
+			return true
+		end
+	end
+	return false
+end
+
+function Combat.UpdateStatuses()
+	local now = os.clock()
+	for _, c in pairs(Combatants.All) do
+		if c.alive and c.humanoid and c.heroId then
+			for i = #c.statuses, 1, -1 do
+				if c.statuses[i].expires <= now then
+					table.remove(c.statuses, i)
+				end
+			end
+			local hero = Heroes.Get(c.heroId)
+			local stunned = Combat.IsStunned(c)
+			local speed = hero.speed * Combat.StatusProduct(c, "speed") * Combat.StatusProduct(c, "slow")
+			c.humanoid.WalkSpeed = stunned and 0 or speed
+			c.humanoid.JumpPower = stunned and 0 or 50
+			if c.entry:GetAttribute("Stunned") ~= stunned then
+				c.entry:SetAttribute("Stunned", stunned)
+			end
+		end
+	end
+end
+
+------------------------------------------------------------------ damage / heal
+function Combat.Damage(attacker, victim, amount, sourceName)
+	if not victim.alive or not victim.humanoid or victim.humanoid.Health <= 0 then
+		return 0
+	end
+	if attacker and attacker ~= victim and attacker.team == victim.team then
+		return 0
+	end
+	if attacker then
+		amount *= Combat.StatusProduct(attacker, "damageMult")
+	end
+	amount *= (1 - math.clamp(Combat.StatusMax(victim, "damageReduction"), 0, 0.9))
+	local dealt = math.min(victim.humanoid.Health, amount)
+	if dealt <= 0 then
+		return 0
+	end
+	if attacker and attacker ~= victim then
+		victim.lastDamager = attacker
+		victim.lastDamagerTime = os.clock()
+		victim.lastDamageSource = sourceName
+		Combatants.AddUlt(attacker, dealt * Config.UltPerDamage)
+		Combatants.AddStat(attacker, "Damage", math.floor(dealt))
+	end
+	victim.humanoid.Health -= dealt
+	local killed = victim.humanoid.Health <= 0
+	if attacker and attacker ~= victim then
+		Combat.Notify(attacker, "hit", { pos = victim.root.Position, amount = math.floor(dealt + 0.5), kill = killed })
+	end
+	Combat.Notify(victim, "hurt", { from = attacker and attacker.root and attacker.root.Position or nil })
+	return dealt
+end
+
+function Combat.Heal(healer, target, amount)
+	if not target.alive or not target.humanoid or target.humanoid.Health <= 0 then
+		return 0
+	end
+	if healer and healer.team ~= target.team then
+		return 0
+	end
+	local h = target.humanoid
+	local healed = math.min(h.MaxHealth - h.Health, amount)
+	if healed <= 0 then
+		return 0
+	end
+	h.Health += healed
+	if healer then
+		Combatants.AddUlt(healer, healed * Config.UltPerHeal)
+		Combatants.AddStat(healer, "Healing", math.floor(healed))
+		Combat.Notify(healer, "hit", { pos = target.root.Position, amount = math.floor(healed + 0.5), heal = true })
+	end
+	return healed
+end
+
+------------------------------------------------------------------ movement forces
+function Combat.Push(c, velocity, duration)
+	local root = c.root
+	if not root or not root.Parent then
+		return
+	end
+	local att = root:FindFirstChild("RootAttachment")
+	if not att then
+		att = Instance.new("Attachment")
+		att.Name = "RootAttachment"
+		att.Parent = root
+	end
+	local old = root:FindFirstChild("AbilityVelocity")
+	if old then
+		old:Destroy()
+	end
+	local lv = Instance.new("LinearVelocity")
+	lv.Name = "AbilityVelocity"
+	lv.Attachment0 = att
+	lv.MaxForce = math.huge
+	lv.RelativeTo = Enum.ActuatorRelativeTo.World
+	lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+	lv.VectorVelocity = velocity
+	lv.Parent = root
+	Debris:AddItem(lv, duration)
+	return lv
+end
+
+function Combat.Knockback(source, target, force)
+	if not target.root then
+		return
+	end
+	local dir = target.root.Position - source
+	dir = Vector3.new(dir.X, 0, dir.Z)
+	dir = dir.Magnitude > 0.01 and dir.Unit or Vector3.new(0, 0, 1)
+	Combat.Push(target, dir * force + Vector3.new(0, force * 0.35, 0), 0.18)
+end
+
+------------------------------------------------------------------ queries
+function Combat.InRadius(pos, radius, fn)
+	Combatants.ForEachAlive(function(c)
+		if (c.root.Position - pos).Magnitude <= radius then
+			fn(c)
+		end
+	end)
+end
+
+function Combat.RayParams(owner, includeAllies)
+	local exclude = { effectsFolder }
+	if owner.model then
+		table.insert(exclude, owner.model)
+	end
+	if not includeAllies then
+		for _, c in pairs(Combatants.All) do
+			if c.team == owner.team and c.model then
+				table.insert(exclude, c.model)
+			end
+		end
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = exclude
+	params.IgnoreWater = true
+	return params
+end
+
+function Combat.HasLineOfSight(fromPos, toPos, ignoreList)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local list = { effectsFolder }
+	for _, inst in ipairs(ignoreList or {}) do
+		table.insert(list, inst)
+	end
+	params.FilterDescendantsInstances = list
+	local result = workspace:Raycast(fromPos, toPos - fromPos, params)
+	return result == nil
+end
+
+-- Applies a direct hit from `owner` on whatever combatant `part` belongs to.
+-- Returns the hit combatant (or nil).
+function Combat.ApplyHit(owner, part, ability, damageOverride)
+	local target = Combatants.FromPart(part)
+	if not target or target == owner then
+		return nil
+	end
+	if target.team ~= owner.team then
+		Combat.Damage(owner, target, damageOverride or ability.damage or 0, ability.name)
+	elseif ability.healAllies then
+		Combat.Heal(owner, target, ability.healAllies)
+	end
+	return target
+end
+
+------------------------------------------------------------------ projectiles
+function Combat.FireProjectile(owner, origin, direction, ability)
+	nextProjectileId += 1
+	local id = nextProjectileId
+	local p = {
+		id = id,
+		owner = owner,
+		ability = ability,
+		pos = origin,
+		vel = direction.Unit * ability.speed,
+		traveled = 0,
+		range = ability.range or 100,
+		radius = math.max(0.5, (ability.size or 1) / 2),
+		params = Combat.RayParams(owner, ability.healAllies ~= nil),
+	}
+	projectiles[id] = p
+	Combat.FX("projectile", { id = id, origin = origin, velocity = p.vel, color = ability.color, size = ability.size or 1, range = p.range })
+	return p
+end
+
+local function explode(p, pos, directTarget)
+	local a = p.ability
+	if a.splashRadius then
+		Combat.InRadius(pos, a.splashRadius, function(c)
+			if c ~= directTarget and c.team ~= p.owner.team then
+				Combat.Damage(p.owner, c, a.splashDamage or 0, a.name)
+			end
+		end)
+		Combat.FX("burst", { pos = pos, radius = a.splashRadius, color = a.color })
+	end
+end
+
+function Combat.StepProjectiles(dt)
+	for id, p in pairs(projectiles) do
+		if p.owner.removed then
+			projectiles[id] = nil
+			continue
+		end
+		local step = p.vel * dt
+		local result = workspace:Spherecast(p.pos, p.radius, step, p.params)
+		if result then
+			local target = Combat.ApplyHit(p.owner, result.Instance, p.ability)
+			explode(p, result.Position, target)
+			Combat.FX("projEnd", { id = id, pos = result.Position, color = p.ability.color })
+			projectiles[id] = nil
+		else
+			p.pos += step
+			p.traveled += step.Magnitude
+			if p.traveled >= p.range then
+				Combat.FX("projEnd", { id = id, pos = p.pos })
+				projectiles[id] = nil
+			end
+		end
+	end
+end
+
+return Combat
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX9"><Properties><string name="Name">Combatants</string><ProtectedString name="Source"><![CDATA[-- Registry of everyone in the match (players and bots). A combatant persists across deaths;
+-- its `model` changes every time it respawns.
+local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Util = require(ReplicatedStorage.Shared.Util)
+
+local Combatants = {}
+Combatants.All = {} -- id -> combatant
+Combatants.ByModel = {} -- model -> combatant
+
+local rosterFolder
+
+function Combatants.Init()
+	rosterFolder = ReplicatedStorage:FindFirstChild("Roster") or Instance.new("Folder")
+	rosterFolder.Name = "Roster"
+	rosterFolder.Parent = ReplicatedStorage
+end
+
+function Combatants.Create(id, name, team, player)
+	local entry = Instance.new("Configuration")
+	entry.Name = id
+	entry:SetAttribute("DisplayName", name)
+	entry:SetAttribute("Team", team)
+	entry:SetAttribute("IsBot", player == nil)
+	entry:SetAttribute("Hero", "")
+	entry:SetAttribute("Kills", 0)
+	entry:SetAttribute("Deaths", 0)
+	entry:SetAttribute("Damage", 0)
+	entry:SetAttribute("Healing", 0)
+	entry:SetAttribute("Ult", 0)
+	entry:SetAttribute("Alive", false)
+	entry:SetAttribute("RespawnAt", 0)
+	entry.Parent = rosterFolder
+
+	local c = {
+		id = id,
+		name = name,
+		team = team,
+		player = player,
+		isBot = player == nil,
+		heroId = nil,
+		model = nil,
+		humanoid = nil,
+		root = nil,
+		alive = false,
+		cooldowns = {},
+		ult = 0,
+		statuses = {},
+		entry = entry,
+		lastDamager = nil,
+		lastDamagerTime = 0,
+		spawnToken = 0,
+	}
+	Combatants.All[id] = c
+	return c
+end
+
+function Combatants.Remove(c)
+	if c.model then
+		Combatants.ByModel[c.model] = nil
+		c.model:Destroy()
+	end
+	c.alive = false
+	c.removed = true
+	c.entry:Destroy()
+	Combatants.All[c.id] = nil
+end
+
+function Combatants.SetTeam(c, team)
+	c.team = team
+	c.entry:SetAttribute("Team", team)
+	if c.player then
+		c.player.Team = game:GetService("Teams"):FindFirstChild(team)
+	end
+end
+
+function Combatants.SetHero(c, heroId)
+	c.heroId = heroId
+	c.entry:SetAttribute("Hero", heroId or "")
+end
+
+function Combatants.AttachModel(c, model)
+	if c.model and c.model ~= model then
+		Combatants.ByModel[c.model] = nil
+	end
+	c.model = model
+	c.humanoid = model:FindFirstChildOfClass("Humanoid")
+	c.root = model:FindFirstChild("HumanoidRootPart")
+	c.alive = true
+	c.statuses = {}
+	c.lastDamager = nil
+	c.cooldowns = {}
+	model:SetAttribute("Team", c.team)
+	model:SetAttribute("CombatantId", c.id)
+	model:SetAttribute("Hero", c.heroId)
+	model:SetAttribute("DisplayName", c.name)
+	CollectionService:AddTag(model, "Combatant")
+	Combatants.ByModel[model] = c
+	c.entry:SetAttribute("Alive", true)
+	for _, slot in ipairs({ "Primary", "Ability1", "Ability2", "Ultimate" }) do
+		c.entry:SetAttribute("CD_" .. slot, 0)
+		c.entry:SetAttribute("CDMax_" .. slot, 1)
+	end
+end
+
+function Combatants.FromPart(part)
+	local node = part
+	while node and node ~= workspace do
+		local c = Combatants.ByModel[node]
+		if c then
+			return c
+		end
+		node = node.Parent
+	end
+	return nil
+end
+
+function Combatants.ForEachAlive(fn)
+	for _, c in pairs(Combatants.All) do
+		if c.alive and c.root and c.humanoid and c.humanoid.Health > 0 then
+			fn(c)
+		end
+	end
+end
+
+function Combatants.CountTeam(team, botsOnly)
+	local n = 0
+	for _, c in pairs(Combatants.All) do
+		if c.team == team and (not botsOnly or c.isBot) then
+			n += 1
+		end
+	end
+	return n
+end
+
+function Combatants.CountHumans(team)
+	local n = 0
+	for _, c in pairs(Combatants.All) do
+		if c.team == team and not c.isBot then
+			n += 1
+		end
+	end
+	return n
+end
+
+function Combatants.AddStat(c, stat, amount)
+	c.entry:SetAttribute(stat, (c.entry:GetAttribute(stat) or 0) + amount)
+end
+
+function Combatants.AddUlt(c, amount)
+	if not c.alive and amount > 0 then
+		return
+	end
+	c.ult = math.clamp(c.ult + amount, 0, 100)
+	c.entry:SetAttribute("Ult", math.floor(c.ult * 10) / 10)
+end
+
+function Combatants.SetCooldown(c, slot, duration)
+	c.cooldowns[slot] = Util.now() + duration
+	c.entry:SetAttribute("CD_" .. slot, c.cooldowns[slot])
+	c.entry:SetAttribute("CDMax_" .. slot, duration)
+end
+
+function Combatants.IsReady(c, slot)
+	return Util.now() >= (c.cooldowns[slot] or 0) - 0.06
+end
+
+return Combatants
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX10"><Properties><string name="Name">HeroOutfits</string><ProtectedString name="Source"><![CDATA[-- Builds each hero's look out of body colors + simple welded parts (no external assets needed).
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Heroes = require(ReplicatedStorage.Shared.Heroes)
+
+local HeroOutfits = {}
+
+function HeroOutfits.Description(heroId)
+	local hero = Heroes.Get(heroId)
+	local o = hero.outfit
+	local d = Instance.new("HumanoidDescription")
+	d.HeadColor = o.skin
+	d.TorsoColor = o.torso
+	d.LeftArmColor = o.arms
+	d.RightArmColor = o.arms
+	d.LeftLegColor = o.legs
+	d.RightLegColor = o.legs
+	local scale = hero.role == "Vanguard" and 1.1 or (hero.role == "Strategist" and 0.97 or 1)
+	d.HeightScale = scale
+	d.WidthScale = scale
+	d.DepthScale = scale
+	return d
+end
+
+local function weld(model, attachName, size, offset, color, props)
+	local attach = model:FindFirstChild(attachName)
+	if not attach then
+		return nil
+	end
+	local p = Instance.new("Part")
+	p.Name = "Outfit"
+	p.Size = size
+	p.Color = color
+	p.Material = Enum.Material.SmoothPlastic
+	p.CanCollide = false
+	p.CanTouch = false
+	p.Massless = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	for k, v in pairs(props or {}) do
+		p[k] = v
+	end
+	p.CFrame = attach.CFrame * offset
+	local w = Instance.new("Weld")
+	w.Part0 = attach
+	w.Part1 = p
+	w.C0 = offset
+	w.Parent = p
+	p.Parent = model
+	return p
+end
+
+local neon = { Material = Enum.Material.Neon }
+local metal = { Material = Enum.Material.Metal }
+
+local helmets = {
+	cowl = function(m, c)
+		weld(m, "Head", Vector3.new(1.28, 0.7, 1.28), CFrame.new(0, 0.32, 0.02), c)
+		weld(m, "Head", Vector3.new(1.28, 1.25, 0.3), CFrame.new(0, 0, 0.5), c)
+		weld(m, "Head", Vector3.new(0.22, 0.55, 0.22), CFrame.new(0.38, 0.85, 0), c)
+		weld(m, "Head", Vector3.new(0.22, 0.55, 0.22), CFrame.new(-0.38, 0.85, 0), c)
+	end,
+	tiara = function(m, c)
+		weld(m, "Head", Vector3.new(1.26, 0.18, 1.26), CFrame.new(0, 0.35, 0), c, metal)
+		weld(m, "Head", Vector3.new(0.3, 0.3, 0.08), CFrame.new(0, 0.42, -0.64) * CFrame.Angles(0, 0, math.rad(45)), Color3.fromRGB(255, 60, 60), neon)
+	end,
+	visor = function(m, c)
+		weld(m, "Head", Vector3.new(1.26, 0.28, 0.2), CFrame.new(0, 0.12, -0.6), c, neon)
+	end,
+	hood = function(m, c)
+		weld(m, "Head", Vector3.new(1.3, 0.6, 1.3), CFrame.new(0, 0.36, 0.02), c)
+		weld(m, "Head", Vector3.new(1.3, 1.25, 0.3), CFrame.new(0, 0, 0.52), c)
+		weld(m, "Head", Vector3.new(0.08, 0.3, 0.5), CFrame.new(0.67, 0.2, 0) * CFrame.Angles(math.rad(-30), 0, 0), Color3.fromRGB(255, 210, 40), neon)
+		weld(m, "Head", Vector3.new(0.08, 0.3, 0.5), CFrame.new(-0.67, 0.2, 0) * CFrame.Angles(math.rad(-30), 0, 0), Color3.fromRGB(255, 210, 40), neon)
+	end,
+	crown = function(m, c)
+		weld(m, "Head", Vector3.new(1.1, 0.3, 1.1), CFrame.new(0, 0.72, 0), c, metal)
+		for i = -1, 1 do
+			weld(m, "Head", Vector3.new(0.18, 0.4, 0.18), CFrame.new(i * 0.4, 0.98, -0.45), c, metal)
+		end
+	end,
+	mask = function(m, c)
+		weld(m, "Head", Vector3.new(1.24, 0.26, 0.1), CFrame.new(0, 0.16, -0.6), c, neon)
+	end,
+	tophat = function(m, c)
+		weld(m, "Head", Vector3.new(1.7, 0.1, 1.7), CFrame.new(0, 0.66, 0), c)
+		weld(m, "Head", Vector3.new(1.05, 0.95, 1.05), CFrame.new(0, 1.15, 0), c)
+		weld(m, "Head", Vector3.new(1.07, 0.18, 1.07), CFrame.new(0, 0.82, 0), Color3.fromRGB(150, 80, 220))
+	end,
+}
+
+local weapons = {
+	sword = function(m, c)
+		weld(m, "RightHand", Vector3.new(0.9, 0.15, 0.2), CFrame.new(0, -0.15, -0.15), Color3.fromRGB(200, 160, 40), metal)
+		weld(m, "RightHand", Vector3.new(0.2, 0.08, 3.6), CFrame.new(0, -0.15, -2.0), c, metal)
+	end,
+	trident = function(m, c)
+		weld(m, "RightHand", Vector3.new(0.2, 6, 0.2), CFrame.new(0, 0.8, 0), c, metal)
+		weld(m, "RightHand", Vector3.new(1.0, 0.15, 0.15), CFrame.new(0, 3.8, 0), c, metal)
+		for i = -1, 1 do
+			weld(m, "RightHand", Vector3.new(0.15, 0.9, 0.15), CFrame.new(i * 0.42, 4.3, 0), c, metal)
+		end
+	end,
+	staff = function(m, c)
+		weld(m, "RightHand", Vector3.new(0.18, 5, 0.18), CFrame.new(0, 0.6, 0), Color3.fromRGB(40, 30, 50))
+		weld(m, "RightHand", Vector3.new(0.6, 0.6, 0.6), CFrame.new(0, 3.3, 0), c, { Material = Enum.Material.Neon, Shape = Enum.PartType.Ball })
+	end,
+	cannon = function(m, c)
+		weld(m, "RightLowerArm", Vector3.new(0.8, 1.3, 0.8), CFrame.new(0, -0.2, 0), c, metal)
+		local muzzle = weld(m, "RightLowerArm", Vector3.new(0.55, 0.12, 0.55), CFrame.new(0, -0.9, 0), Color3.fromRGB(255, 120, 60), neon)
+		if muzzle then
+			local light = Instance.new("PointLight")
+			light.Range = 6
+			light.Color = muzzle.Color
+			light.Parent = muzzle
+		end
+	end,
+	ring = function(m, c)
+		local ring = weld(m, "RightHand", Vector3.new(0.4, 0.4, 0.4), CFrame.new(0, -0.1, -0.2), c, { Material = Enum.Material.Neon, Shape = Enum.PartType.Ball })
+		if ring then
+			local light = Instance.new("PointLight")
+			light.Range = 10
+			light.Brightness = 2
+			light.Color = c
+			light.Parent = ring
+		end
+	end,
+}
+
+function HeroOutfits.Apply(model, heroId)
+	local hero = Heroes.Get(heroId)
+	local o = hero.outfit
+
+	for _, inst in ipairs(model:GetChildren()) do
+		if inst:IsA("Accessory") or inst:IsA("Shirt") or inst:IsA("Pants") or inst:IsA("ShirtGraphic") or inst.Name == "Outfit" then
+			inst:Destroy()
+		end
+	end
+
+	if o.cape then
+		weld(model, "UpperTorso", Vector3.new(1.9, 3.3, 0.12), CFrame.new(0, -0.95, 0.62) * CFrame.Angles(math.rad(8), 0, 0), o.cape, { Material = Enum.Material.Fabric })
+	end
+	if o.emblem then
+		local emblem = weld(model, "UpperTorso", Vector3.new(0.95, 0.95, 0.08), CFrame.new(0, 0.15, -0.53), o.emblem.bg)
+		if emblem then
+			local gui = Instance.new("SurfaceGui")
+			gui.Face = Enum.NormalId.Front
+			gui.CanvasSize = Vector2.new(100, 100)
+			gui.LightInfluence = 0
+			local label = Instance.new("TextLabel")
+			label.Size = UDim2.fromScale(1, 1)
+			label.BackgroundTransparency = 1
+			label.Text = o.emblem.text
+			label.TextColor3 = o.emblem.color
+			label.TextScaled = true
+			label.Font = Enum.Font.GothamBlack
+			label.Parent = gui
+			gui.Parent = emblem
+		end
+	end
+	if o.helmet and helmets[o.helmet] then
+		helmets[o.helmet](model, o.helmetColor or hero.color)
+	end
+	if o.weapon and weapons[o.weapon] then
+		weapons[o.weapon](model, o.weaponColor or hero.color)
+	end
+	if o.shield then
+		weld(model, "LeftLowerArm", Vector3.new(0.2, 2.3, 2.3), CFrame.new(-0.4, 0, 0), o.shield, { Shape = Enum.PartType.Cylinder, Material = Enum.Material.Metal })
+	end
+	if o.glow then
+		local torso = model:FindFirstChild("UpperTorso")
+		if torso then
+			local light = Instance.new("PointLight")
+			light.Name = "HeroGlow"
+			light.Range = 9
+			light.Brightness = 0.8
+			light.Color = o.glow
+			light.Parent = torso
+		end
+	end
+end
+
+return HeroOutfits
+]]></ProtectedString></Properties></Item><Item class="Script" referent="RBX11"><Properties><string name="Name">Main</string><ProtectedString name="Source"><![CDATA[-- Server entry point.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Teams = game:GetService("Teams")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local MapBuilder = require(script.Parent.MapBuilder)
+local Combatants = require(script.Parent.Combatants)
+local Combat = require(script.Parent.Combat)
+local Match = require(script.Parent.Match)
+
+Players.CharacterAutoLoads = false
+Players.RespawnTime = 1e6
+game:GetService("StarterPlayer").EnableMouseLockOption = false -- Shift is an ability key
+
+-- Teams (for the player list / spawn locations)
+for _, info in pairs(Config.Teams) do
+	local team = Teams:FindFirstChild(info.Name) or Instance.new("Team")
+	team.Name = info.Name
+	team.TeamColor = info.BrickColor
+	team.AutoAssignable = false
+	team.Parent = Teams
+end
+
+-- Remotes
+local remotes = Instance.new("Folder")
+remotes.Name = "Remotes"
+for _, name in ipairs({ "UseAbility", "PickHero", "FX", "Notify" }) do
+	local r = Instance.new("RemoteEvent")
+	r.Name = name
+	r.Parent = remotes
+end
+remotes.Parent = ReplicatedStorage
+
+MapBuilder.Build()
+Combatants.Init()
+Combat.Init(remotes)
+Match.Start(remotes)
+
+print(Config.GameTitle .. " server started")
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX12"><Properties><string name="Name">MapBuilder</string><ProtectedString name="Source"><![CDATA[-- Builds the "Neon Harbor" arena procedurally so the place needs no pre-made assets.
+local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+
+local MapBuilder = {}
+
+local GROUND_X, GROUND_Z = 380, 250
+local SPAWN_X = 155
+
+local function part(props)
+	local p = Instance.new(props.ClassName or "Part")
+	props.ClassName = nil
+	p.Anchored = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Material = Enum.Material.Concrete
+	for k, v in pairs(props) do
+		if k ~= "Parent" then
+			p[k] = v
+		end
+	end
+	p.Parent = props.Parent
+	return p
+end
+
+local function setupLighting()
+	Lighting.ClockTime = 19.2
+	Lighting.Brightness = 2
+	Lighting.Ambient = Color3.fromRGB(70, 70, 90)
+	Lighting.OutdoorAmbient = Color3.fromRGB(110, 100, 140)
+	Lighting.EnvironmentDiffuseScale = 0.5
+	Lighting.EnvironmentSpecularScale = 0.5
+	Lighting.GlobalShadows = true
+
+	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere")
+	atmosphere.Density = 0.32
+	atmosphere.Color = Color3.fromRGB(200, 170, 220)
+	atmosphere.Decay = Color3.fromRGB(90, 60, 120)
+	atmosphere.Glare = 0.2
+	atmosphere.Haze = 1.5
+	atmosphere.Parent = Lighting
+
+	local bloom = Lighting:FindFirstChildOfClass("BloomEffect") or Instance.new("BloomEffect")
+	bloom.Intensity = 0.6
+	bloom.Size = 30
+	bloom.Threshold = 1.6
+	bloom.Parent = Lighting
+
+	local cc = Lighting:FindFirstChildOfClass("ColorCorrectionEffect") or Instance.new("ColorCorrectionEffect")
+	cc.Saturation = 0.15
+	cc.Contrast = 0.08
+	cc.Parent = Lighting
+end
+
+local function neonStrip(parent, cf, size, color)
+	return part({ Parent = parent, CFrame = cf, Size = size, Color = color, Material = Enum.Material.Neon, CanCollide = false, CastShadow = false })
+end
+
+local function building(parent, pos, size, rng)
+	local colors = { Color3.fromRGB(45, 45, 60), Color3.fromRGB(60, 55, 70), Color3.fromRGB(40, 50, 65) }
+	local b = part({
+		Parent = parent,
+		Size = size,
+		CFrame = CFrame.new(pos + Vector3.new(0, size.Y / 2, 0)),
+		Color = colors[rng:NextInteger(1, #colors)],
+		Material = Enum.Material.Slate,
+	})
+	-- neon window bands
+	local neon = { Color3.fromRGB(255, 80, 200), Color3.fromRGB(80, 220, 255), Color3.fromRGB(255, 200, 80) }
+	local c = neon[rng:NextInteger(1, #neon)]
+	for y = 10, size.Y - 6, 14 do
+		neonStrip(parent, CFrame.new(pos + Vector3.new(0, y, 0)), Vector3.new(size.X + 0.4, 1, size.Z + 0.4), c)
+	end
+	return b
+end
+
+local function crate(parent, pos, s)
+	return part({
+		Parent = parent,
+		Size = Vector3.new(s, s, s),
+		CFrame = CFrame.new(pos + Vector3.new(0, s / 2, 0)),
+		Color = Color3.fromRGB(120, 90, 60),
+		Material = Enum.Material.WoodPlanks,
+	})
+end
+
+local function wall(parent, pos, size, color)
+	return part({
+		Parent = parent,
+		Size = size,
+		CFrame = CFrame.new(pos + Vector3.new(0, size.Y / 2, 0)),
+		Color = color or Color3.fromRGB(90, 90, 105),
+	})
+end
+
+local function platform(parent, pos, size, rampDir)
+	-- raised platform with a ramp on the `rampDir` side
+	wall(parent, pos, size, Color3.fromRGB(75, 75, 95))
+	neonStrip(parent, CFrame.new(pos + Vector3.new(0, size.Y + 0.05, 0)), Vector3.new(size.X, 0.1, size.Z) - Vector3.new(2, 0, 2), Color3.fromRGB(80, 220, 255)).Transparency = 0.7
+	local rampLen = size.Y * 2.2
+	local half = (math.abs(rampDir.X) > 0 and size.X or size.Z) / 2
+	local rampPos = pos + rampDir * (half + rampLen / 2) + Vector3.new(0, size.Y / 2, 0)
+	part({
+		ClassName = "WedgePart",
+		Parent = parent,
+		Size = Vector3.new(10, size.Y, rampLen),
+		CFrame = CFrame.lookAt(rampPos, rampPos + rampDir),
+		Color = Color3.fromRGB(85, 85, 100),
+	})
+end
+
+function MapBuilder.Build()
+	local old = workspace:FindFirstChild("Map")
+	if old then
+		old:Destroy()
+	end
+	setupLighting()
+
+	local map = Instance.new("Model")
+	map.Name = "Map"
+	local rng = Random.new(42)
+
+	-- ground
+	part({ Parent = map, Name = "Ground", Size = Vector3.new(GROUND_X, 2, GROUND_Z), CFrame = CFrame.new(0, -1, 0), Color = Color3.fromRGB(55, 55, 65), Material = Enum.Material.Asphalt })
+	-- road lines
+	for x = -150, 150, 20 do
+		neonStrip(map, CFrame.new(x, 0.03, 0), Vector3.new(8, 0.05, 0.6), Color3.fromRGB(255, 210, 90)).Transparency = 0.4
+	end
+
+	-- perimeter walls
+	local hx, hz = GROUND_X / 2, GROUND_Z / 2
+	wall(map, Vector3.new(0, 0, hz), Vector3.new(GROUND_X, 30, 2))
+	wall(map, Vector3.new(0, 0, -hz), Vector3.new(GROUND_X, 30, 2))
+	wall(map, Vector3.new(hx, 0, 0), Vector3.new(2, 30, GROUND_Z))
+	wall(map, Vector3.new(-hx, 0, 0), Vector3.new(2, 30, GROUND_Z))
+
+	-- skyline backdrop
+	for x = -hx, hx, 30 do
+		for _, z in ipairs({ hz + 20, -hz - 20 }) do
+			building(map, Vector3.new(x + rng:NextNumber(-5, 5), 0, z), Vector3.new(24, rng:NextNumber(50, 130), 24), rng)
+		end
+	end
+	for z = -hz, hz, 30 do
+		for _, x in ipairs({ hx + 20, -hx - 20 }) do
+			building(map, Vector3.new(x, 0, z + rng:NextNumber(-5, 5)), Vector3.new(24, rng:NextNumber(50, 130), 24), rng)
+		end
+	end
+
+	-- mirrored cover layout (s = side, t = north/south)
+	for _, s in ipairs({ -1, 1 }) do
+		for _, t in ipairs({ -1, 1 }) do
+			platform(map, Vector3.new(s * 70, 0, t * 62), Vector3.new(24, 8, 24), Vector3.new(-s, 0, 0))
+			crate(map, Vector3.new(s * 40, 0, t * 30), 6)
+			crate(map, Vector3.new(s * 44, 0, t * 36), 4)
+			wall(map, Vector3.new(s * 24, 0, t * 20), Vector3.new(2, 5, 14))
+			wall(map, Vector3.new(s * 100, 0, t * 26), Vector3.new(14, 6, 2))
+			crate(map, Vector3.new(s * 110, 0, t * 70), 7)
+			wall(map, Vector3.new(s * 25, 0, t * 85), Vector3.new(18, 10, 4), Color3.fromRGB(70, 70, 85))
+		end
+		wall(map, Vector3.new(s * 85, 0, 0), Vector3.new(3, 7, 18))
+	end
+	-- cover on north/south lanes of the point
+	wall(map, Vector3.new(0, 0, 38), Vector3.new(16, 6, 3))
+	wall(map, Vector3.new(0, 0, -38), Vector3.new(16, 6, 3))
+
+	-- capture point
+	local ring = part({
+		ClassName = "Part",
+		Parent = map,
+		Name = "PointRing",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.2, Config.PointRadius * 2, Config.PointRadius * 2),
+		CFrame = CFrame.new(0, 0.05, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = Color3.fromRGB(230, 230, 230),
+		Material = Enum.Material.Neon,
+		Transparency = 0.6,
+		CanCollide = false,
+		CastShadow = false,
+	})
+	local beacon = part({
+		Parent = map,
+		Name = "PointBeacon",
+		Size = Vector3.new(2, 60, 2),
+		CFrame = CFrame.new(0, 30, 0),
+		Color = Color3.fromRGB(230, 230, 230),
+		Material = Enum.Material.Neon,
+		Transparency = 0.75,
+		CanCollide = false,
+		CanQuery = false,
+		CastShadow = false,
+	})
+	for i = 0, 3 do
+		local a = math.rad(45 + i * 90)
+		local p = Vector3.new(math.cos(a), 0, math.sin(a)) * (Config.PointRadius + 1)
+		wall(map, p, Vector3.new(1.5, 9, 1.5), Color3.fromRGB(40, 40, 50))
+		local lamp = neonStrip(map, CFrame.new(p + Vector3.new(0, 9.5, 0)), Vector3.new(2, 1, 2), Color3.fromRGB(255, 255, 255))
+		lamp.Name = "PointLamp"
+		local light = Instance.new("PointLight")
+		light.Range = 22
+		light.Brightness = 2
+		light.Parent = lamp
+	end
+
+	-- spawn rooms
+	local info = { SpawnPoints = {}, SpawnZones = {}, Barriers = {}, PointCenter = Vector3.new(0, 0, 0), Ring = ring, Beacon = beacon, Map = map }
+	for teamName, s in pairs({ Blue = -1, Red = 1 }) do
+		local team = Config.Teams[teamName]
+		local cx = s * SPAWN_X
+		local roomDepth, roomWidth = 40, 44
+		local backX = cx + s * roomDepth / 2
+		local frontX = cx - s * roomDepth / 2
+		wall(map, Vector3.new(backX, 0, 0), Vector3.new(2, 18, roomWidth), Color3.fromRGB(60, 60, 75))
+		wall(map, Vector3.new(cx, 0, roomWidth / 2), Vector3.new(roomDepth, 18, 2), Color3.fromRGB(60, 60, 75))
+		wall(map, Vector3.new(cx, 0, -roomWidth / 2), Vector3.new(roomDepth, 18, 2), Color3.fromRGB(60, 60, 75))
+		part({ Parent = map, Size = Vector3.new(roomDepth, 0.2, roomWidth), CFrame = CFrame.new(cx, 0.1, 0), Color = team.Color, Material = Enum.Material.Neon, Transparency = 0.8, CanCollide = false, CastShadow = false })
+		neonStrip(map, CFrame.new(cx, 18.2, roomWidth / 2), Vector3.new(roomDepth, 0.6, 2.4), team.Color)
+		neonStrip(map, CFrame.new(cx, 18.2, -roomWidth / 2), Vector3.new(roomDepth, 0.6, 2.4), team.Color)
+
+		local barrier = part({
+			Parent = map,
+			Name = teamName .. "Barrier",
+			Size = Vector3.new(1, 18, roomWidth),
+			CFrame = CFrame.new(frontX, 9, 0),
+			Color = team.Color,
+			Material = Enum.Material.ForceField,
+			Transparency = 0.2,
+			CanCollide = true,
+		})
+		info.Barriers[teamName] = barrier
+
+		local spawn = Instance.new("SpawnLocation")
+		spawn.Name = teamName .. "Spawn"
+		spawn.Anchored = true
+		spawn.Size = Vector3.new(10, 1, 10)
+		spawn.CFrame = CFrame.new(cx + s * 8, 0.5, 0)
+		spawn.Neutral = false
+		spawn.TeamColor = team.BrickColor
+		spawn.Duration = 0
+		spawn.AllowTeamChangeOnTouch = false
+		spawn.Color = team.Color
+		spawn.Material = Enum.Material.Neon
+		spawn.Transparency = 0.5
+		spawn.CanCollide = false
+		spawn.Parent = map
+
+		local points = {}
+		for i = -2, 2 do
+			for j = 0, 1 do
+				local pos = Vector3.new(cx + s * (j * 8 - 2), 3.5, i * 7)
+				table.insert(points, CFrame.lookAt(pos, Vector3.new(0, 3.5, pos.Z)))
+			end
+		end
+		info.SpawnPoints[teamName] = points
+		info.SpawnZones[teamName] = { Center = Vector3.new(cx, 0, 0), HalfX = roomDepth / 2, HalfZ = roomWidth / 2 }
+	end
+
+	map.Parent = workspace
+	MapBuilder.Info = info
+	return info
+end
+
+function MapBuilder.IsInSpawn(teamName, pos)
+	local zone = MapBuilder.Info and MapBuilder.Info.SpawnZones[teamName]
+	if not zone then
+		return false
+	end
+	local d = pos - zone.Center
+	return math.abs(d.X) <= zone.HalfX and math.abs(d.Z) <= zone.HalfZ and pos.Y < 25
+end
+
+function MapBuilder.SetBarriers(closed)
+	for _, barrier in pairs(MapBuilder.Info.Barriers) do
+		barrier.CanCollide = closed
+		barrier.Transparency = closed and 0.2 or 1
+		barrier.CanQuery = closed
+	end
+end
+
+return MapBuilder
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX13"><Properties><string name="Name">Match</string><ProtectedString name="Source"><![CDATA[-- Match flow: Hero Select -> rounds of Domination (best of 3) -> Match End -> repeat.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Heroes = require(ReplicatedStorage.Shared.Heroes)
+local Util = require(ReplicatedStorage.Shared.Util)
+local Combatants = require(script.Parent.Combatants)
+local Combat = require(script.Parent.Combat)
+local Abilities = require(script.Parent.Abilities)
+local MapBuilder = require(script.Parent.MapBuilder)
+local Spawner = require(script.Parent.Spawner)
+local Bots = require(script.Parent.Bots)
+
+local Match = {}
+
+local state -- MatchState Configuration (replicated)
+local botCounter = 0
+
+local function getState()
+	return state:GetAttribute("State")
+end
+
+local function setState(name, duration)
+	state:SetAttribute("State", name)
+	state:SetAttribute("StateEnds", Util.now() + (duration or 0))
+end
+
+local function respawnAllowed()
+	local s = getState()
+	return s == "Preparing" or s == "InProgress"
+end
+
+local function otherTeam(team)
+	return team == "Blue" and "Red" or "Blue"
+end
+
+------------------------------------------------------------------ hero picking
+local function heroTaken(team, heroId, except)
+	for _, c in pairs(Combatants.All) do
+		if c ~= except and c.team == team and c.heroId == heroId then
+			return c
+		end
+	end
+	return nil
+end
+
+local function pickFreeHero(team, except)
+	local roleCount = { Vanguard = 0, Duelist = 0, Strategist = 0 }
+	for _, c in pairs(Combatants.All) do
+		if c ~= except and c.team == team and c.heroId then
+			local h = Heroes.Get(c.heroId)
+			roleCount[h.role] += 1
+		end
+	end
+	local roles = table.clone(Config.RoleOrder)
+	for i = #roles, 2, -1 do -- shuffle so ties break randomly, then sort by how many picked each role
+		local j = math.random(1, i)
+		roles[i], roles[j] = roles[j], roles[i]
+	end
+	local tiebreak = {}
+	for i, role in ipairs(roles) do
+		tiebreak[role] = i
+	end
+	table.sort(roles, function(a, b)
+		if roleCount[a] == roleCount[b] then
+			return tiebreak[a] < tiebreak[b]
+		end
+		return roleCount[a] < roleCount[b]
+	end)
+	for _, role in ipairs(roles) do
+		local options = {}
+		for _, h in ipairs(Heroes.List) do
+			if h.role == role and not heroTaken(team, h.id, except) then
+				table.insert(options, h.id)
+			end
+		end
+		if #options > 0 then
+			return options[math.random(1, #options)]
+		end
+	end
+	return Heroes.List[math.random(1, #Heroes.List)].id
+end
+
+------------------------------------------------------------------ bots
+local function addBot(team)
+	botCounter += 1
+	local name = Bots.Names[(botCounter - 1) % #Bots.Names + 1]
+	local c = Combatants.Create("Bot_" .. botCounter, name .. " [BOT]", team, nil)
+	Combatants.SetHero(c, pickFreeHero(team, c))
+	return c
+end
+
+local function removeOneBot(team)
+	for _, c in pairs(Combatants.All) do
+		if c.isBot and c.team == team then
+			Combatants.Remove(c)
+			return true
+		end
+	end
+	return false
+end
+
+local function fillBots()
+	if not Config.FillWithBots then
+		return
+	end
+	for _, team in ipairs({ "Blue", "Red" }) do
+		while Combatants.CountTeam(team) < Config.TeamSize do
+			addBot(team)
+		end
+	end
+end
+
+local function removeAllBots()
+	for _, c in pairs(Combatants.All) do
+		if c.isBot then
+			Combatants.Remove(c)
+		end
+	end
+end
+
+------------------------------------------------------------------ players
+local function chooseTeamForNewPlayer()
+	local blue, red = Combatants.CountHumans("Blue"), Combatants.CountHumans("Red")
+	if blue ~= red then
+		return blue < red and "Blue" or "Red"
+	end
+	return Combatants.CountTeam("Blue") <= Combatants.CountTeam("Red") and "Blue" or "Red"
+end
+
+local function onPlayerAdded(player)
+	local team = chooseTeamForNewPlayer()
+	if Combatants.CountTeam(team) >= Config.TeamSize then
+		if not removeOneBot(team) then
+			team = otherTeam(team)
+			removeOneBot(team)
+		end
+	end
+	local c = Combatants.Create(tostring(player.UserId), player.DisplayName, team, player)
+	Combatants.SetTeam(c, team)
+	local s = getState()
+	if s ~= "HeroSelect" and s ~= "Waiting" then
+		task.delay(1, function()
+			Combat.Notify(c, "openSelect", { force = true })
+		end)
+	end
+end
+
+local function onPlayerRemoving(player)
+	local c = Combatants.All[tostring(player.UserId)]
+	if not c then
+		return
+	end
+	local team = c.team
+	Combatants.Remove(c)
+	if Config.FillWithBots and respawnAllowed() and #Players:GetPlayers() > 1 then
+		local bot = addBot(team)
+		Spawner.Spawn(bot)
+	end
+end
+
+local function onPickHero(player, heroId)
+	local c = Combatants.All[tostring(player.UserId)]
+	if not c or typeof(heroId) ~= "string" or not Heroes.Get(heroId) then
+		return
+	end
+	local holder = heroTaken(c.team, heroId, c)
+	if holder and not holder.isBot then
+		Combat.Notify(c, "pickResult", { ok = false, reason = holder.name .. " already picked that hero" })
+		return
+	end
+	local s = getState()
+	if s ~= "HeroSelect" and c.alive and not MapBuilder.IsInSpawn(c.team, c.root.Position) then
+		Combat.Notify(c, "pickResult", { ok = false, reason = "You can only swap heroes in your spawn room" })
+		return
+	end
+	if holder then
+		Combatants.SetHero(holder, pickFreeHero(holder.team, holder))
+		if holder.alive and s ~= "HeroSelect" then
+			task.spawn(Spawner.Spawn, holder)
+		end
+	end
+	Combatants.SetHero(c, heroId)
+	Combat.Notify(c, "pickResult", { ok = true, hero = heroId })
+
+	if s == "HeroSelect" or s == "Waiting" then
+		return
+	end
+	-- mid-match: swap immediately if alive in spawn or never spawned; otherwise applies on respawn
+	local pendingRespawn = (c.entry:GetAttribute("RespawnAt") or 0) > Util.now()
+	if c.alive or (not pendingRespawn and s ~= "MatchEnd") then
+		Spawner.Spawn(c)
+	end
+end
+
+------------------------------------------------------------------ objective
+local point = { owner = nil, captureTeam = nil, progress = 0, scores = { Blue = 0, Red = 0 } }
+
+local function paintPoint(color)
+	local info = MapBuilder.Info
+	info.Ring.Color = color
+	info.Beacon.Color = color
+	for _, p in ipairs(info.Map:GetChildren()) do
+		if p.Name == "PointLamp" then
+			p.Color = color
+			local light = p:FindFirstChildOfClass("PointLight")
+			if light then
+				light.Color = color
+			end
+		end
+	end
+end
+
+local function resetPoint()
+	point.owner = nil
+	point.captureTeam = nil
+	point.progress = 0
+	point.scores.Blue = 0
+	point.scores.Red = 0
+	paintPoint(Color3.fromRGB(230, 230, 230))
+end
+
+local function publishPoint(onPoint, contested)
+	state:SetAttribute("PointOwner", point.owner or "")
+	state:SetAttribute("CaptureTeam", point.captureTeam or "")
+	state:SetAttribute("CaptureProgress", math.floor(point.progress))
+	state:SetAttribute("BlueScore", math.floor(point.scores.Blue * 10) / 10)
+	state:SetAttribute("RedScore", math.floor(point.scores.Red * 10) / 10)
+	state:SetAttribute("BlueOnPoint", onPoint.Blue)
+	state:SetAttribute("RedOnPoint", onPoint.Red)
+	state:SetAttribute("Contested", contested)
+end
+
+local function updatePoint(dt)
+	local center = MapBuilder.Info.PointCenter
+	local onPoint = { Blue = 0, Red = 0 }
+	Combatants.ForEachAlive(function(c)
+		local d = c.root.Position - center
+		if Vector3.new(d.X, 0, d.Z).Magnitude <= Config.PointRadius and d.Y < 12 then
+			onPoint[c.team] += 1
+		end
+	end)
+	local contested = onPoint.Blue > 0 and onPoint.Red > 0
+	local solo = (onPoint.Blue > 0 and not contested and "Blue") or (onPoint.Red > 0 and not contested and "Red") or nil
+
+	if solo and solo ~= point.owner then
+		if point.captureTeam ~= solo then
+			-- enemy progress must drain first
+			point.progress -= dt * (100 / Config.CaptureTime) * 1.5
+			if point.progress <= 0 then
+				point.progress = 0
+				point.captureTeam = solo
+			end
+		else
+			local mult = math.min(1 + 0.25 * (onPoint[solo] - 1), 1.75)
+			point.progress += dt * (100 / Config.CaptureTime) * mult
+			if point.progress >= 100 then
+				point.owner = solo
+				point.captureTeam = nil
+				point.progress = 0
+				paintPoint(Config.Teams[solo].Color)
+				Combat.NotifyAll("announce", { text = string.upper(solo) .. " TEAM CAPTURED THE POINT", color = Config.Teams[solo].Color })
+			end
+		end
+	elseif not solo and not contested and point.progress > 0 then
+		point.progress = math.max(0, point.progress - dt * 10)
+		if point.progress == 0 then
+			point.captureTeam = nil
+		end
+	end
+
+	if point.owner then
+		local s = point.scores[point.owner] + dt * (100 / Config.ScoreTime)
+		local enemyOnPoint = onPoint[otherTeam(point.owner)] > 0
+		if enemyOnPoint and s >= 99 then
+			s = 99 -- overtime: can't win while the point is contested
+		end
+		point.scores[point.owner] = math.min(s, 100)
+	end
+	publishPoint(onPoint, contested)
+
+	if point.scores.Blue >= 100 then
+		return "Blue"
+	elseif point.scores.Red >= 100 then
+		return "Red"
+	end
+	return nil
+end
+
+local function spawnRoomEffects(dt)
+	Combatants.ForEachAlive(function(c)
+		local pos = c.root.Position
+		if MapBuilder.IsInSpawn(c.team, pos) then
+			Combat.Heal(nil, c, Config.SpawnHealPerSecond * dt)
+		elseif MapBuilder.IsInSpawn(otherTeam(c.team), pos) then
+			Combat.Damage(nil, c, Config.SpawnEnemyDamagePerSecond * dt, "Spawn Defense")
+		end
+		Combatants.AddUlt(c, Config.UltPassivePerSecond * dt)
+	end)
+end
+
+------------------------------------------------------------------ flow
+local function waitUntil(endTime, earlyExit)
+	while Util.now() < endTime do
+		if earlyExit and earlyExit() then
+			return
+		end
+		task.wait(0.2)
+	end
+end
+
+local function allHumansPicked()
+	local any = false
+	for _, c in pairs(Combatants.All) do
+		if not c.isBot then
+			any = true
+			if not c.heroId then
+				return false
+			end
+		end
+	end
+	return any
+end
+
+local function resetMatch()
+	Combat.ClearConstructs()
+	MapBuilder.SetBarriers(true)
+	removeAllBots()
+	for _, c in pairs(Combatants.All) do
+		Spawner.Despawn(c)
+		Combatants.SetHero(c, nil)
+		c.ult = 0
+		for _, stat in ipairs({ "Kills", "Deaths", "Damage", "Healing", "Ult" }) do
+			c.entry:SetAttribute(stat, 0)
+		end
+	end
+	-- rebalance humans
+	local humans = {}
+	for _, c in pairs(Combatants.All) do
+		table.insert(humans, c)
+	end
+	for i = #humans, 2, -1 do
+		local j = math.random(1, i)
+		humans[i], humans[j] = humans[j], humans[i]
+	end
+	for i, c in ipairs(humans) do
+		Combatants.SetTeam(c, i % 2 == 1 and "Blue" or "Red")
+	end
+	resetPoint()
+	publishPoint({ Blue = 0, Red = 0 }, false)
+	state:SetAttribute("BlueRounds", 0)
+	state:SetAttribute("RedRounds", 0)
+	state:SetAttribute("Round", 0)
+	state:SetAttribute("Winner", "")
+end
+
+local function playRound(round)
+	state:SetAttribute("Round", round)
+	Combat.ClearConstructs()
+	resetPoint()
+	publishPoint({ Blue = 0, Red = 0 }, false)
+	MapBuilder.SetBarriers(true)
+
+	for _, c in pairs(Combatants.All) do
+		if not c.heroId then
+			Combatants.SetHero(c, pickFreeHero(c.team, c))
+		end
+		task.spawn(Spawner.Spawn, c)
+	end
+
+	setState("Preparing", Config.PrepTime)
+	Combat.NotifyAll("announce", { text = "ROUND " .. round, sub = "Prepare to fight! Swap heroes with H", color = Color3.new(1, 1, 1) })
+	waitUntil(state:GetAttribute("StateEnds"))
+
+	MapBuilder.SetBarriers(false)
+	setState("InProgress", 0)
+	Combat.NotifyAll("announce", { text = "FIGHT!", sub = "Capture and hold the point", color = Color3.fromRGB(255, 220, 90) })
+
+	local winner
+	local last = os.clock()
+	while not winner do
+		task.wait(0.1)
+		local now = os.clock()
+		local dt = now - last
+		last = now
+		spawnRoomEffects(dt)
+		winner = updatePoint(dt)
+	end
+
+	local key = winner .. "Rounds"
+	state:SetAttribute(key, state:GetAttribute(key) + 1)
+	setState("RoundEnd", Config.RoundEndTime)
+	Combat.NotifyAll("announce", { text = string.upper(winner) .. " WINS ROUND " .. round, color = Config.Teams[winner].Color })
+	waitUntil(state:GetAttribute("StateEnds"))
+	return winner
+end
+
+local function runMatch()
+	resetMatch()
+	if #Players:GetPlayers() == 0 then
+		setState("Waiting", 0)
+		repeat
+			task.wait(1)
+		until #Players:GetPlayers() > 0
+	end
+
+	setState("HeroSelect", Config.HeroSelectTime)
+	local selectStart = Util.now()
+	waitUntil(state:GetAttribute("StateEnds"), function()
+		return Util.now() - selectStart > 4 and allHumansPicked()
+	end)
+	for _, c in pairs(Combatants.All) do
+		if not c.heroId then
+			Combatants.SetHero(c, pickFreeHero(c.team, c))
+			Combat.Notify(c, "pickResult", { ok = true, hero = c.heroId, auto = true })
+		end
+	end
+	fillBots()
+
+	local round = 0
+	while state:GetAttribute("BlueRounds") < Config.RoundsToWin and state:GetAttribute("RedRounds") < Config.RoundsToWin do
+		round += 1
+		playRound(round)
+	end
+
+	local winner = state:GetAttribute("BlueRounds") >= Config.RoundsToWin and "Blue" or "Red"
+	state:SetAttribute("Winner", winner)
+	setState("MatchEnd", Config.MatchEndTime)
+	Combat.NotifyAll("matchEnd", { winner = winner })
+	waitUntil(state:GetAttribute("StateEnds"))
+end
+
+function Match.Start(remotes)
+	state = Instance.new("Configuration")
+	state.Name = "MatchState"
+	state:SetAttribute("State", "Waiting")
+	state:SetAttribute("StateEnds", 0)
+	state.Parent = ReplicatedStorage
+
+	Spawner.OnDeath = function(c)
+		if respawnAllowed() then
+			Spawner.ScheduleRespawn(c, Config.RespawnTime, respawnAllowed)
+		end
+	end
+
+	remotes.PickHero.OnServerEvent:Connect(onPickHero)
+	remotes.UseAbility.OnServerEvent:Connect(function(player, slot, aimPos)
+		if typeof(slot) ~= "string" or not table.find(Config.Slots, slot) then
+			return
+		end
+		local s = getState()
+		if s == "HeroSelect" or s == "Waiting" or s == "MatchEnd" then
+			return
+		end
+		local c = Combatants.All[tostring(player.UserId)]
+		if c then
+			Abilities.Use(c, slot, typeof(aimPos) == "Vector3" and aimPos or nil)
+		end
+	end)
+
+	Players.PlayerAdded:Connect(onPlayerAdded)
+	Players.PlayerRemoving:Connect(onPlayerRemoving)
+	for _, p in ipairs(Players:GetPlayers()) do
+		onPlayerAdded(p)
+	end
+
+	task.spawn(function()
+		while true do
+			local ok, err = pcall(runMatch)
+			if not ok then
+				warn("Match loop error:", err)
+				task.wait(2)
+			end
+		end
+	end)
+end
+
+return Match
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX14"><Properties><string name="Name">Spawner</string><ProtectedString name="Source"><![CDATA[-- Spawns / despawns hero bodies for players and bots, and reports deaths.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Heroes = require(ReplicatedStorage.Shared.Heroes)
+local Util = require(ReplicatedStorage.Shared.Util)
+local Combatants = require(script.Parent.Combatants)
+local Combat = require(script.Parent.Combat)
+local HeroOutfits = require(script.Parent.HeroOutfits)
+local MapBuilder = require(script.Parent.MapBuilder)
+local Bots = require(script.Parent.Bots)
+
+local Spawner = {}
+Spawner.OnDeath = nil -- set by Match: function(c)
+
+local botFolder
+
+local function spawnCFrame(team)
+	local points = MapBuilder.Info.SpawnPoints[team]
+	local cf = points[math.random(1, #points)]
+	return cf + Vector3.new(math.random(-15, 15) / 10, 0, math.random(-15, 15) / 10)
+end
+
+local function handleDeath(c, model)
+	if c.model ~= model or not c.alive then
+		return
+	end
+	c.alive = false
+	c.statuses = {}
+	c.entry:SetAttribute("Alive", false)
+	Combatants.AddStat(c, "Deaths", 1)
+
+	local killer = c.lastDamager
+	if killer and (os.clock() - c.lastDamagerTime) > 10 then
+		killer = nil
+	end
+	if killer and killer.removed then
+		killer = nil
+	end
+	if killer then
+		Combatants.AddStat(killer, "Kills", 1)
+		Combat.Notify(killer, "announceSmall", { text = "ELIMINATED " .. string.upper(c.name) })
+	end
+	Combat.NotifyAll("killfeed", {
+		killer = killer and killer.name or nil,
+		killerTeam = killer and killer.team or nil,
+		killerHero = killer and killer.heroId or nil,
+		victim = c.name,
+		victimTeam = c.team,
+		victimHero = c.heroId,
+		source = c.lastDamageSource,
+	})
+	Combat.Notify(c, "death", { killer = killer and killer.name or nil, killerHero = killer and killer.heroId or nil })
+
+	if c.isBot then
+		task.delay(3, function()
+			if c.model == model then
+				Combatants.ByModel[model] = nil
+				model:Destroy()
+				if c.model == model then
+					c.model = nil
+				end
+			end
+		end)
+	end
+	if Spawner.OnDeath then
+		Spawner.OnDeath(c)
+	end
+end
+
+local function setup(c, model, cf)
+	local hero = Heroes.Get(c.heroId)
+	local humanoid = model:WaitForChild("Humanoid", 5)
+	local root = model:WaitForChild("HumanoidRootPart", 5)
+	if not humanoid or not root then
+		return
+	end
+	HeroOutfits.Apply(model, c.heroId)
+	humanoid.MaxHealth = hero.health
+	humanoid.Health = hero.health
+	humanoid.WalkSpeed = hero.speed
+	humanoid.UseJumpPower = true
+	humanoid.JumpPower = 50
+	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+	model:PivotTo(cf)
+
+	Combatants.AttachModel(c, model)
+	c.entry:SetAttribute("RespawnAt", 0)
+
+	humanoid.Died:Connect(function()
+		handleDeath(c, model)
+	end)
+	if c.isBot then
+		root:SetNetworkOwner(nil)
+		Bots.Attach(c)
+	end
+end
+
+function Spawner.Spawn(c, cf)
+	if c.removed or not c.heroId then
+		return
+	end
+	c.spawnToken += 1
+	local token = c.spawnToken
+	cf = cf or spawnCFrame(c.team)
+	c.alive = false
+	local desc = HeroOutfits.Description(c.heroId)
+
+	if c.player then
+		if c.model then
+			Combatants.ByModel[c.model] = nil
+		end
+		local ok, err = pcall(function()
+			c.player:LoadCharacterWithHumanoidDescription(desc)
+		end)
+		if not ok then
+			warn("LoadCharacter failed:", err)
+			return
+		end
+		if c.spawnToken ~= token or c.removed then
+			return
+		end
+		setup(c, c.player.Character, cf)
+	else
+		if c.model then
+			Combatants.ByModel[c.model] = nil
+			c.model:Destroy()
+			c.model = nil
+		end
+		local model = Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R15)
+		model.Name = c.name
+		local animate = model:FindFirstChild("Animate")
+		if animate then
+			animate:Destroy()
+		end
+		if not botFolder or not botFolder.Parent then
+			botFolder = Instance.new("Folder")
+			botFolder.Name = "Bots"
+			botFolder.Parent = workspace
+		end
+		model:PivotTo(cf)
+		model.Parent = botFolder
+		setup(c, model, cf)
+	end
+end
+
+function Spawner.Despawn(c)
+	c.spawnToken += 1
+	c.alive = false
+	c.entry:SetAttribute("Alive", false)
+	if c.model then
+		Combatants.ByModel[c.model] = nil
+		c.model:Destroy()
+		c.model = nil
+	end
+	if c.player then
+		c.player.Character = nil
+	end
+end
+
+function Spawner.ScheduleRespawn(c, delay, canSpawn)
+	local token = c.spawnToken
+	c.entry:SetAttribute("RespawnAt", Util.now() + delay)
+	task.delay(delay, function()
+		if c.spawnToken == token and not c.removed and not c.alive and canSpawn() then
+			Spawner.Spawn(c)
+		end
+	end)
+end
+
+return Spawner
+]]></ProtectedString></Properties></Item></Item></Item><Item class="StarterPlayer" referent="RBX27"><Properties><string name="Name">StarterPlayer</string><bool name="EnableMouseLockOption">false</bool></Properties><Item class="StarterPlayerScripts" referent="RBX24"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="Folder" referent="RBX23"><Properties><string name="Name">Client</string></Properties><Item class="ModuleScript" referent="RBX17"><Properties><string name="Name">Controls</string><ProtectedString name="Source"><![CDATA[-- Over-the-shoulder camera, aiming and ability input (keyboard/mouse, gamepad and touch buttons).
+local ContextActionService = game:GetService("ContextActionService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local Heroes = require(ReplicatedStorage.Shared.Heroes)
+local Util = require(ReplicatedStorage.Shared.Util)
+
+local Controls = {}
+
+local ctx
+local player = Players.LocalPlayer
+local firing = false
+local nextPrimary = 0
+local freeCursor = false
+local SHOULDER = Vector3.new(1.8, 0.8, 0)
+
+local function getCharacter()
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if hum and root and hum.Health > 0 then
+		return char, hum, root
+	end
+	return nil
+end
+
+local function myHero()
+	local entry = ctx.MyEntry()
+	return entry and Heroes.Get(entry:GetAttribute("Hero") or ""), entry
+end
+
+function Controls.GetAim()
+	local cam = workspace.CurrentCamera
+	local vp = cam.ViewportSize
+	local ray = cam:ViewportPointToRay(vp.X / 2, vp.Y / 2)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local exclude = { workspace:FindFirstChild("ClientFX"), workspace:FindFirstChild("Effects") }
+	if player.Character then
+		table.insert(exclude, player.Character)
+	end
+	params.FilterDescendantsInstances = exclude
+	local result = workspace:Raycast(ray.Origin, ray.Direction * 600, params)
+	return result and result.Position or ray.Origin + ray.Direction * 600
+end
+
+local function canAct()
+	if ctx.MenuOpen() then
+		return false
+	end
+	local s = ctx.State:GetAttribute("State")
+	if s == "HeroSelect" or s == "Waiting" or s == "MatchEnd" then
+		return false
+	end
+	return getCharacter() ~= nil
+end
+
+local function tryUse(slot)
+	if not canAct() then
+		return
+	end
+	local hero, entry = myHero()
+	if not hero then
+		return
+	end
+	if slot == "Ultimate" then
+		if (entry:GetAttribute("Ult") or 0) < 100 then
+			return
+		end
+	elseif Util.now() < (entry:GetAttribute("CD_" .. slot) or 0) - 0.05 then
+		return
+	end
+	ctx.Remotes.UseAbility:FireServer(slot, Controls.GetAim())
+end
+
+local function bindActions()
+	local high = Enum.ContextActionPriority.High.Value
+	ContextActionService:BindActionAtPriority("DCA_Primary", function(_, inputState)
+		firing = inputState == Enum.UserInputState.Begin
+		return Enum.ContextActionResult.Pass
+	end, true, high, Enum.UserInputType.MouseButton1, Enum.KeyCode.ButtonR2)
+	ContextActionService:SetTitle("DCA_Primary", "FIRE")
+
+	local slots = {
+		{ "DCA_Ability1", "Ability1", { Enum.KeyCode.LeftShift, Enum.KeyCode.ButtonL1 }, "A1" },
+		{ "DCA_Ability2", "Ability2", { Enum.KeyCode.E, Enum.KeyCode.ButtonR1 }, "A2" },
+		{ "DCA_Ultimate", "Ultimate", { Enum.KeyCode.Q, Enum.KeyCode.ButtonY }, "ULT" },
+	}
+	for _, s in ipairs(slots) do
+		ContextActionService:BindActionAtPriority(s[1], function(_, inputState)
+			if inputState == Enum.UserInputState.Begin then
+				tryUse(s[2])
+			end
+			return Enum.ContextActionResult.Sink
+		end, true, high, table.unpack(s[3]))
+		ContextActionService:SetTitle(s[1], s[4])
+	end
+
+	ContextActionService:BindAction("DCA_HeroSelect", function(_, inputState)
+		if inputState == Enum.UserInputState.Begin then
+			ctx.ToggleHeroSelect()
+		end
+		return Enum.ContextActionResult.Sink
+	end, true, Enum.KeyCode.H, Enum.KeyCode.ButtonSelect)
+	ContextActionService:SetTitle("DCA_HeroSelect", "HERO")
+
+	ContextActionService:BindAction("DCA_Scoreboard", function(_, inputState)
+		ctx.ShowScoreboard(inputState == Enum.UserInputState.Begin)
+		return Enum.ContextActionResult.Sink
+	end, false, Enum.KeyCode.Tab)
+
+	ContextActionService:BindAction("DCA_FreeCursor", function(_, inputState)
+		freeCursor = inputState == Enum.UserInputState.Begin
+		return Enum.ContextActionResult.Sink
+	end, false, Enum.KeyCode.LeftAlt)
+end
+
+function Controls.Init(context)
+	ctx = context
+	player.CameraMinZoomDistance = 7
+	player.CameraMaxZoomDistance = 18
+	pcall(function()
+		player.DevEnableMouseLock = false -- Shift is an ability key, not shift-lock
+	end)
+	bindActions()
+
+	RunService:BindToRenderStep("DCAlliesShoulderCam", Enum.RenderPriority.Camera.Value - 1, function()
+		local char, hum, root = getCharacter()
+		local lock = char ~= nil and not ctx.MenuOpen() and not freeCursor and not UserInputService.TouchEnabled
+		if lock then
+			UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+			UserInputService.MouseIconEnabled = false
+		elseif UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter then
+			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		end
+		if not lock then
+			UserInputService.MouseIconEnabled = true
+		end
+
+		if char then
+			hum.CameraOffset = hum.CameraOffset:Lerp(SHOULDER, 0.2)
+			local stunned = (ctx.MyEntry() and ctx.MyEntry():GetAttribute("Stunned")) == true
+			if lock and not stunned then
+				hum.AutoRotate = false
+				local look = workspace.CurrentCamera.CFrame.LookVector
+				local yaw = math.atan2(-look.X, -look.Z)
+				root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, yaw, 0)
+			else
+				hum.AutoRotate = true
+			end
+		end
+	end)
+
+	RunService.Heartbeat:Connect(function()
+		if not firing or not canAct() then
+			return
+		end
+		local hero = myHero()
+		if not hero then
+			return
+		end
+		local now = os.clock()
+		if now >= nextPrimary then
+			nextPrimary = now + hero.abilities.Primary.cooldown
+			ctx.Remotes.UseAbility:FireServer("Primary", Controls.GetAim())
+		end
+	end)
+end
+
+return Controls
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX18"><Properties><string name="Name">Effects</string><ProtectedString name="Source"><![CDATA[-- Client-side visuals for server FX events: beams, projectiles, bursts, slashes, auras, damage numbers.
+local Debris = game:GetService("Debris")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local Effects = {}
+
+local folder
+local projectiles = {}
+local shakeUntil, shakeIntensity = 0, 0
+
+local function fxPart(props)
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	p.Material = Enum.Material.Neon
+	for k, v in pairs(props) do
+		p[k] = v
+	end
+	p.Parent = folder
+	return p
+end
+
+local function fade(inst, time, goal)
+	goal = goal or {}
+	goal.Transparency = 1
+	TweenService:Create(inst, TweenInfo.new(time, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), goal):Play()
+	Debris:AddItem(inst, time + 0.05)
+end
+
+local function muzzleOf(model, fallback)
+	if model and model.Parent then
+		local hand = model:FindFirstChild("RightHand") or model:FindFirstChild("Head")
+		if hand then
+			return hand.Position
+		end
+	end
+	return fallback
+end
+
+local Handlers = {}
+
+function Handlers.beam(d)
+	local from = muzzleOf(d.owner, d.from)
+	local to = d.to
+	local width = d.width or 0.25
+	local function place(p, a, b)
+		local len = (b - a).Magnitude
+		p.Size = Vector3.new(width, width, math.max(len, 0.1))
+		p.CFrame = CFrame.lookAt((a + b) / 2, b)
+	end
+	local beam = fxPart({ Color = d.color or Color3.new(1, 1, 1), Transparency = 0.15 })
+	place(beam, from, to)
+	if d.follow and d.owner then
+		local t0 = os.clock()
+		local conn
+		conn = RunService.RenderStepped:Connect(function()
+			if os.clock() - t0 > (d.life or 0.3) or not beam.Parent then
+				conn:Disconnect()
+				return
+			end
+			place(beam, muzzleOf(d.owner, from), to)
+		end)
+	end
+	fade(beam, d.life or 0.1)
+	local spark = fxPart({ Shape = Enum.PartType.Ball, Size = Vector3.one * width * 4, CFrame = CFrame.new(to), Color = beam.Color, Transparency = 0.3 })
+	fade(spark, 0.15, { Size = Vector3.one * width * 8 })
+end
+
+function Handlers.projectile(d)
+	local size = d.size or 1
+	local p = fxPart({ Shape = Enum.PartType.Ball, Size = Vector3.one * size, CFrame = CFrame.new(d.origin), Color = d.color })
+	local tail = fxPart({ Size = Vector3.new(size * 0.5, size * 0.5, size * 3), Color = d.color, Transparency = 0.5 })
+	local light = Instance.new("PointLight")
+	light.Color = d.color
+	light.Range = 8
+	light.Brightness = 2
+	light.Parent = p
+	projectiles[d.id] = { part = p, tail = tail, origin = d.origin, velocity = d.velocity, range = d.range, t0 = os.clock() }
+end
+
+local function endProjectile(id)
+	local proj = projectiles[id]
+	if proj then
+		proj.part:Destroy()
+		proj.tail:Destroy()
+		projectiles[id] = nil
+	end
+end
+
+function Handlers.projEnd(d)
+	endProjectile(d.id)
+	if d.color then
+		local p = fxPart({ Shape = Enum.PartType.Ball, Size = Vector3.one, CFrame = CFrame.new(d.pos), Color = d.color, Transparency = 0.2 })
+		fade(p, 0.2, { Size = Vector3.one * 3 })
+	end
+end
+
+function Handlers.burst(d)
+	local p = fxPart({ Shape = Enum.PartType.Ball, Size = Vector3.one, CFrame = CFrame.new(d.pos), Color = d.color, Transparency = 0.35 })
+	fade(p, 0.4, { Size = Vector3.one * d.radius * 2 })
+	local ring = fxPart({
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.2, 1, 1),
+		CFrame = CFrame.new(d.pos + Vector3.new(0, 0.2, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = d.color,
+		Transparency = 0.2,
+	})
+	fade(ring, 0.5, { Size = Vector3.new(0.2, d.radius * 2.2, d.radius * 2.2) })
+	if d.shake then
+		local cam = workspace.CurrentCamera
+		if (cam.CFrame.Position - d.pos).Magnitude < 60 then
+			Effects.Shake(0.35, 0.6)
+		end
+	end
+end
+
+function Handlers.slash(d)
+	local range = d.range or 8
+	local blade = fxPart({ Size = Vector3.new(0.15, 0.4, range), Color = d.color, Transparency = 0.2 })
+	local t0 = os.clock()
+	local conn
+	conn = RunService.RenderStepped:Connect(function()
+		local t = (os.clock() - t0) / 0.15
+		if t >= 1 then
+			conn:Disconnect()
+			fade(blade, 0.1)
+			return
+		end
+		local rot = math.rad(-60 + 120 * t)
+		blade.CFrame = d.cf * CFrame.Angles(0, rot, 0) * CFrame.new(0, 0.5, -range / 2)
+	end)
+end
+
+function Handlers.cone(d)
+	local rays = 6
+	for i = 0, rays - 1 do
+		local a = math.rad(-d.angle / 2 + d.angle * (i / (rays - 1)))
+		local p = fxPart({ Size = Vector3.new(1.2, 1.2, 1), Color = d.color, Transparency = 0.3 })
+		local cf = d.cf * CFrame.Angles(0, a, 0)
+		p.CFrame = cf * CFrame.new(0, 0, -0.5)
+		fade(p, 0.35, { Size = Vector3.new(2.5, 2.5, d.range), CFrame = cf * CFrame.new(0, 0, -d.range / 2) })
+	end
+end
+
+function Handlers.trail(d)
+	local model = d.model
+	local root = model and model:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return
+	end
+	local a0 = Instance.new("Attachment")
+	a0.Position = Vector3.new(0, 1.2, 0)
+	a0.Parent = root
+	local a1 = Instance.new("Attachment")
+	a1.Position = Vector3.new(0, -1.2, 0)
+	a1.Parent = root
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = a0
+	trail.Attachment1 = a1
+	trail.Color = ColorSequence.new(d.color)
+	trail.Transparency = NumberSequence.new(0.2, 1)
+	trail.Lifetime = 0.35
+	trail.LightEmission = 1
+	trail.FaceCamera = true
+	trail.Parent = root
+	Debris:AddItem(trail, d.life or 0.5)
+	Debris:AddItem(a0, (d.life or 0.5) + 0.4)
+	Debris:AddItem(a1, (d.life or 0.5) + 0.4)
+end
+
+function Handlers.aura(d)
+	local model = d.model
+	if not model or not model.Parent then
+		return
+	end
+	local h = Instance.new("Highlight")
+	h.FillColor = d.color
+	h.OutlineColor = d.color
+	h.FillTransparency = 0.6
+	h.OutlineTransparency = 0
+	h.DepthMode = Enum.HighlightDepthMode.Occluded
+	h.Parent = model
+	Debris:AddItem(h, d.life or 1)
+end
+
+function Handlers.strike(d)
+	local top = d.pos + Vector3.new(math.random(-6, 6), 70, math.random(-6, 6))
+	local bolt = fxPart({ Size = Vector3.new(0.8, 0.8, (top - d.pos).Magnitude), CFrame = CFrame.lookAt((top + d.pos) / 2, d.pos), Color = d.color })
+	fade(bolt, 0.25)
+	Handlers.burst({ pos = d.pos, radius = d.radius, color = d.color })
+end
+
+------------------------------------------------------------------ damage numbers
+function Effects.DamageNumber(pos, amount, heal, kill)
+	local att = Instance.new("Attachment")
+	att.WorldPosition = pos + Vector3.new(math.random(-10, 10) / 10, 3, math.random(-10, 10) / 10)
+	att.Parent = workspace.Terrain
+	local gui = Instance.new("BillboardGui")
+	gui.Size = UDim2.fromOffset(80, 30)
+	gui.AlwaysOnTop = true
+	gui.LightInfluence = 0
+	gui.Parent = att
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBlack
+	label.TextScaled = true
+	label.Text = (heal and "+" or "") .. tostring(amount)
+	label.TextColor3 = heal and Color3.fromRGB(110, 255, 140) or (kill and Color3.fromRGB(255, 70, 70) or Color3.fromRGB(255, 240, 200))
+	label.TextStrokeTransparency = 0.3
+	label.Parent = gui
+	TweenService:Create(gui, TweenInfo.new(0.7), { StudsOffset = Vector3.new(0, 2, 0) }):Play()
+	TweenService:Create(label, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	Debris:AddItem(att, 0.75)
+end
+
+function Effects.Shake(duration, intensity)
+	shakeUntil = os.clock() + duration
+	shakeIntensity = intensity
+end
+
+function Effects.Handle(kind, data)
+	local h = Handlers[kind]
+	if h then
+		local ok, err = pcall(h, data)
+		if not ok then
+			warn("FX error", kind, err)
+		end
+	end
+end
+
+function Effects.Init()
+	folder = Instance.new("Folder")
+	folder.Name = "ClientFX"
+	folder.Parent = workspace
+
+	RunService.RenderStepped:Connect(function()
+		local now = os.clock()
+		for id, proj in pairs(projectiles) do
+			local t = now - proj.t0
+			local offset = proj.velocity * t
+			if offset.Magnitude >= proj.range or t > 5 then
+				endProjectile(id)
+			else
+				local pos = proj.origin + offset
+				local dir = proj.velocity.Unit
+				proj.part.CFrame = CFrame.new(pos)
+				proj.tail.CFrame = CFrame.lookAt(pos - dir * proj.tail.Size.Z / 2, pos)
+			end
+		end
+	end)
+
+	RunService:BindToRenderStep("DCAlliesShake", Enum.RenderPriority.Camera.Value + 1, function()
+		if os.clock() < shakeUntil then
+			local cam = workspace.CurrentCamera
+			local i = shakeIntensity * ((shakeUntil - os.clock()) / 0.35)
+			cam.CFrame = cam.CFrame * CFrame.Angles(math.rad((math.random() - 0.5) * i), math.rad((math.random() - 0.5) * i), 0)
+		end
+	end)
+end
+
+return Effects
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX19"><Properties><string name="Name">HUD</string><ProtectedString name="Source"><![CDATA[-- In-match HUD: objective, health, abilities, kill feed, announcements, death screen, scoreboard.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Heroes = require(ReplicatedStorage.Shared.Heroes)
+local Util = require(ReplicatedStorage.Shared.Util)
+local make, corner, stroke = Util.make, Util.corner, Util.stroke
+
+local HUD = {}
+
+local player = Players.LocalPlayer
+local ctx
+local gui
+local r = {} -- references to UI elements
+local deathInfo = nil
+local scoreboardHeld = false
+
+local DARK = Color3.fromRGB(16, 18, 26)
+local WHITE = Color3.new(1, 1, 1)
+
+local function hex(c)
+	return string.format("#%02X%02X%02X", math.floor(c.R * 255), math.floor(c.G * 255), math.floor(c.B * 255))
+end
+
+local function teamColor(team)
+	return Config.Teams[team] and Config.Teams[team].Color or WHITE
+end
+
+local function clock(seconds)
+	seconds = math.max(0, math.ceil(seconds))
+	return string.format("%d:%02d", seconds // 60, seconds % 60)
+end
+
+local function label(props)
+	props.BackgroundTransparency = props.BackgroundTransparency or 1
+	props.Font = props.Font or Enum.Font.GothamBold
+	props.TextColor3 = props.TextColor3 or WHITE
+	props.TextScaled = props.TextScaled ~= false
+	return make("TextLabel", props)
+end
+
+------------------------------------------------------------------ builders
+local function buildCrosshair()
+	local holder = make("Frame", { Size = UDim2.fromOffset(40, 40), Position = UDim2.fromScale(0.5, 0.5), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, Parent = gui })
+	make("Frame", { Size = UDim2.fromOffset(4, 4), Position = UDim2.fromScale(0.5, 0.5), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = WHITE, BorderSizePixel = 0, Parent = holder }, { corner(2), stroke(Color3.new(0, 0, 0), 1, 0.4) })
+	for _, d in ipairs({ { 0, -11, 2, 7 }, { 0, 11, 2, 7 }, { -11, 0, 7, 2 }, { 11, 0, 7, 2 } }) do
+		make("Frame", { Size = UDim2.fromOffset(d[3], d[4]), Position = UDim2.new(0.5, d[1], 0.5, d[2]), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = WHITE, BackgroundTransparency = 0.2, BorderSizePixel = 0, Parent = holder })
+	end
+	r.crosshair = holder
+	local hit = make("Frame", { Size = UDim2.fromOffset(36, 36), Position = UDim2.fromScale(0.5, 0.5), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, Visible = false, Parent = gui })
+	r.hitLines = {}
+	for _, rot in ipairs({ 45, -45 }) do
+		table.insert(r.hitLines, make("Frame", { Size = UDim2.fromOffset(30, 3), Position = UDim2.fromScale(0.5, 0.5), AnchorPoint = Vector2.new(0.5, 0.5), Rotation = rot, BackgroundColor3 = WHITE, BorderSizePixel = 0, Parent = hit }))
+	end
+	r.hitMarker = hit
+	r.status = label({ Size = UDim2.fromOffset(300, 22), Position = UDim2.new(0.5, 0, 0.5, 60), AnchorPoint = Vector2.new(0.5, 0), Text = "", TextColor3 = Color3.fromRGB(255, 220, 90), TextStrokeTransparency = 0.4, Parent = gui })
+	r.small = label({ Size = UDim2.fromOffset(400, 24), Position = UDim2.new(0.5, 0, 0.5, 34), AnchorPoint = Vector2.new(0.5, 0), Text = "", TextColor3 = Color3.fromRGB(255, 90, 90), TextStrokeTransparency = 0.3, TextTransparency = 1, Font = Enum.Font.GothamBlack, Parent = gui })
+end
+
+local function buildObjective()
+	local panel = make("Frame", { Size = UDim2.fromOffset(560, 64), Position = UDim2.new(0.5, 0, 0, 10), AnchorPoint = Vector2.new(0.5, 0), BackgroundTransparency = 1, Parent = gui })
+	local function teamBar(team, side)
+		local frame = make("Frame", {
+			Size = UDim2.fromOffset(220, 26),
+			Position = side == "left" and UDim2.new(0, 0, 0, 8) or UDim2.new(1, 0, 0, 8),
+			AnchorPoint = side == "left" and Vector2.new(0, 0) or Vector2.new(1, 0),
+			BackgroundColor3 = DARK,
+			BackgroundTransparency = 0.25,
+			BorderSizePixel = 0,
+			Parent = panel,
+		}, { corner(6), stroke(teamColor(team), 2, 0.2) })
+		local fill = make("Frame", {
+			Size = UDim2.fromScale(0, 1),
+			Position = side == "left" and UDim2.fromScale(1, 0) or UDim2.fromScale(0, 0),
+			AnchorPoint = side == "left" and Vector2.new(1, 0) or Vector2.new(0, 0),
+			BackgroundColor3 = teamColor(team),
+			BorderSizePixel = 0,
+			Parent = frame,
+		}, { corner(6) })
+		local pct = label({ Size = UDim2.new(1, -16, 1, -6), Position = UDim2.fromOffset(8, 3), Text = "0%", TextXAlignment = side == "left" and Enum.TextXAlignment.Left or Enum.TextXAlignment.Right, TextStrokeTransparency = 0.5, ZIndex = 2, Parent = frame })
+		local tag = label({ Size = UDim2.fromOffset(60, 14), Position = side == "left" and UDim2.new(0, 2, 1, 4) or UDim2.new(1, -2, 1, 4), AnchorPoint = side == "left" and Vector2.new(0, 0) or Vector2.new(1, 0), Text = string.upper(team), TextColor3 = teamColor(team), TextXAlignment = side == "left" and Enum.TextXAlignment.Left or Enum.TextXAlignment.Right, Parent = frame })
+		local pips = {}
+		for i = 1, Config.RoundsToWin do
+			local x = side == "left" and (220 - i * 18) or (i * 18 - 14)
+			pips[i] = make("Frame", { Size = UDim2.fromOffset(12, 12), Position = UDim2.new(0, x, 1, 5), BackgroundColor3 = DARK, BorderSizePixel = 0, Parent = frame }, { corner(3), stroke(teamColor(team), 1.5, 0) })
+		end
+		return { fill = fill, pct = pct, tag = tag, pips = pips }
+	end
+	r.blue = teamBar("Blue", "left")
+	r.red = teamBar("Red", "right")
+	local pointFrame = make("Frame", { Size = UDim2.fromOffset(56, 56), Position = UDim2.new(0.5, 0, 0, 0), AnchorPoint = Vector2.new(0.5, 0), BackgroundColor3 = DARK, BackgroundTransparency = 0.1, BorderSizePixel = 0, Parent = panel }, { corner(28) })
+	r.pointStroke = stroke(WHITE, 3, 0)
+	r.pointStroke.Parent = pointFrame
+	r.pointFill = make("Frame", { Size = UDim2.fromScale(1, 0), Position = UDim2.fromScale(0, 1), AnchorPoint = Vector2.new(0, 1), BackgroundColor3 = WHITE, BackgroundTransparency = 0.4, BorderSizePixel = 0, Parent = pointFrame }, { corner(28) })
+	r.pointText = label({ Size = UDim2.new(1, -14, 1, -14), Position = UDim2.fromOffset(7, 7), Text = "A", Font = Enum.Font.GothamBlack, ZIndex = 2, Parent = pointFrame })
+	r.stateText = label({ Size = UDim2.fromOffset(400, 20), Position = UDim2.new(0.5, 0, 0, 76), AnchorPoint = Vector2.new(0.5, 0), Text = "", TextStrokeTransparency = 0.5, Parent = gui })
+	r.onPoint = label({ Size = UDim2.fromOffset(400, 16), Position = UDim2.new(0.5, 0, 0, 98), AnchorPoint = Vector2.new(0.5, 0), Text = "", RichText = true, TextStrokeTransparency = 0.5, Font = Enum.Font.Gotham, Parent = gui })
+	r.objective = panel
+end
+
+local function buildHealth()
+	local panel = make("Frame", { Size = UDim2.fromOffset(340, 92), Position = UDim2.new(0, 24, 1, -24), AnchorPoint = Vector2.new(0, 1), BackgroundColor3 = DARK, BackgroundTransparency = 0.35, BorderSizePixel = 0, Parent = gui }, { corner(10) })
+	r.heroName = label({ Size = UDim2.new(1, -24, 0, 26), Position = UDim2.fromOffset(12, 8), Text = "", Font = Enum.Font.GothamBlack, TextXAlignment = Enum.TextXAlignment.Left, Parent = panel })
+	r.heroRole = label({ Size = UDim2.new(1, -24, 0, 14), Position = UDim2.fromOffset(12, 36), Text = "", TextXAlignment = Enum.TextXAlignment.Left, Parent = panel })
+	local bg = make("Frame", { Size = UDim2.new(1, -24, 0, 22), Position = UDim2.fromOffset(12, 58), BackgroundColor3 = Color3.fromRGB(40, 40, 50), BorderSizePixel = 0, Parent = panel }, { corner(5) })
+	r.hpFill = make("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(240, 240, 240), BorderSizePixel = 0, Parent = bg }, { corner(5) })
+	r.hpText = label({ Size = UDim2.new(1, -10, 1, -4), Position = UDim2.fromOffset(5, 2), Text = "", TextColor3 = DARK, ZIndex = 2, Parent = bg })
+	r.healthPanel = panel
+end
+
+local function buildAbilities()
+	local panel = make("Frame", { Size = UDim2.fromOffset(380, 110), Position = UDim2.new(1, -24, 1, -24), AnchorPoint = Vector2.new(1, 1), BackgroundTransparency = 1, Parent = gui })
+	make("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Right, VerticalAlignment = Enum.VerticalAlignment.Bottom, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder, Parent = panel })
+	r.slots = {}
+	for i, slot in ipairs(Config.Slots) do
+		local size = slot == "Ultimate" and 82 or 66
+		local holder = make("Frame", { Size = UDim2.fromOffset(size, size + 22), BackgroundTransparency = 1, LayoutOrder = i, Parent = panel })
+		local box = make("Frame", { Size = UDim2.fromOffset(size, size), BackgroundColor3 = DARK, BackgroundTransparency = 0.2, BorderSizePixel = 0, ClipsDescendants = true, Parent = holder }, { corner(slot == "Ultimate" and size / 2 or 10) })
+		local s = stroke(WHITE, 2, 0.5)
+		s.Parent = box
+		local overlay = make("Frame", { Size = UDim2.fromScale(1, 0), Position = UDim2.fromScale(0, 1), AnchorPoint = Vector2.new(0, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.35, BorderSizePixel = 0, ZIndex = 2, Parent = box })
+		local key = label({ Size = UDim2.fromOffset(size - 8, 14), Position = UDim2.fromOffset(4, 4), Text = Config.SlotKeys[slot], TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(200, 200, 210), ZIndex = 3, Parent = box })
+		local big = label({ Size = UDim2.new(1, -16, 0, 26), Position = UDim2.new(0, 8, 0.5, -6), Text = "", Font = Enum.Font.GothamBlack, ZIndex = 3, Parent = box })
+		local name = label({ Size = UDim2.new(1, 20, 0, 14), Position = UDim2.new(0.5, 0, 1, -16), AnchorPoint = Vector2.new(0.5, 0), Text = "", TextColor3 = Color3.fromRGB(220, 220, 230), TextStrokeTransparency = 0.5, Parent = holder })
+		r.slots[slot] = { box = box, stroke = s, overlay = overlay, big = big, name = name, key = key }
+	end
+	r.abilityPanel = panel
+end
+
+local function buildKillfeed()
+	local feed = make("Frame", { Size = UDim2.fromOffset(380, 220), Position = UDim2.new(1, -16, 0, 16), AnchorPoint = Vector2.new(1, 0), BackgroundTransparency = 1, Parent = gui })
+	make("UIListLayout", { HorizontalAlignment = Enum.HorizontalAlignment.Right, Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder, Parent = feed })
+	r.feed = feed
+	r.feedCount = 0
+end
+
+local function buildAnnounce()
+	r.announce = label({ Size = UDim2.fromOffset(800, 54), Position = UDim2.new(0.5, 0, 0.24, 0), AnchorPoint = Vector2.new(0.5, 0.5), Text = "", Font = Enum.Font.GothamBlack, TextTransparency = 1, TextStrokeTransparency = 1, Parent = gui })
+	r.announceSub = label({ Size = UDim2.fromOffset(600, 24), Position = UDim2.new(0.5, 0, 0.24, 40), AnchorPoint = Vector2.new(0.5, 0.5), Text = "", TextTransparency = 1, TextStrokeTransparency = 1, Parent = gui })
+end
+
+local function buildDeath()
+	local frame = make("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(30, 0, 0), BackgroundTransparency = 0.55, Visible = false, ZIndex = 5, Parent = gui })
+	r.deathTitle = label({ Size = UDim2.fromOffset(700, 50), Position = UDim2.fromScale(0.5, 0.4), AnchorPoint = Vector2.new(0.5, 0.5), Text = "ELIMINATED", Font = Enum.Font.GothamBlack, TextColor3 = Color3.fromRGB(255, 80, 80), ZIndex = 6, Parent = frame })
+	r.deathBy = label({ Size = UDim2.fromOffset(700, 26), Position = UDim2.new(0.5, 0, 0.4, 42), AnchorPoint = Vector2.new(0.5, 0.5), Text = "", ZIndex = 6, Parent = frame })
+	r.deathTimer = label({ Size = UDim2.fromOffset(700, 30), Position = UDim2.new(0.5, 0, 0.4, 84), AnchorPoint = Vector2.new(0.5, 0.5), Text = "", Font = Enum.Font.GothamBlack, ZIndex = 6, Parent = frame })
+	label({ Size = UDim2.fromOffset(700, 20), Position = UDim2.new(0.5, 0, 0.4, 120), AnchorPoint = Vector2.new(0.5, 0.5), Text = "Press H to change hero", TextColor3 = Color3.fromRGB(220, 220, 220), ZIndex = 6, Parent = frame })
+	r.death = frame
+	r.flash = make("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(255, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 4, Parent = gui })
+end
+
+local function buildScoreboard()
+	local frame = make("Frame", { Size = UDim2.fromOffset(820, 440), Position = UDim2.fromScale(0.5, 0.52), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = DARK, BackgroundTransparency = 0.1, Visible = false, ZIndex = 10, Parent = gui }, { corner(12) })
+	r.sbTitle = label({ Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, 10), Text = "SCOREBOARD", Font = Enum.Font.GothamBlack, ZIndex = 11, Parent = frame })
+	r.sbLists = {}
+	for i, team in ipairs({ "Blue", "Red" }) do
+		local col = make("Frame", { Size = UDim2.new(0.5, -24, 1, -60), Position = UDim2.new((i - 1) * 0.5, 12, 0, 50), BackgroundTransparency = 1, ZIndex = 11, Parent = frame })
+		make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder, Parent = col })
+		r.sbLists[team] = col
+	end
+	r.scoreboard = frame
+end
+
+local function buildMatchEnd()
+	r.matchEnd = label({ Size = UDim2.fromOffset(900, 110), Position = UDim2.fromScale(0.5, 0.12), AnchorPoint = Vector2.new(0.5, 0), Text = "", Font = Enum.Font.GothamBlack, TextStrokeTransparency = 0.2, Visible = false, ZIndex = 12, Parent = gui })
+end
+
+local function buildHints()
+	r.hints = label({
+		Size = UDim2.fromOffset(700, 16),
+		Position = UDim2.new(0.5, 0, 1, -8),
+		AnchorPoint = Vector2.new(0.5, 1),
+		Text = "LMB Fire   SHIFT Ability 1   E Ability 2   Q Ultimate   H Swap Hero (in spawn)   TAB Scores   ALT Free Cursor",
+		TextColor3 = Color3.fromRGB(200, 200, 210),
+		TextTransparency = 0.3,
+		Font = Enum.Font.Gotham,
+		Parent = gui,
+	})
+end
+
+------------------------------------------------------------------ scoreboard
+local function refreshScoreboard()
+	for _, team in ipairs({ "Blue", "Red" }) do
+		for _, child in ipairs(r.sbLists[team]:GetChildren()) do
+			if child:IsA("Frame") then
+				child:Destroy()
+			end
+		end
+	end
+	local function row(parent, order, cells, color, bold)
+		local f = make("Frame", { Size = UDim2.new(1, 0, 0, 26), BackgroundColor3 = color, BackgroundTransparency = bold and 1 or 0.75, BorderSizePixel = 0, LayoutOrder = order, ZIndex = 11, Parent = parent }, { corner(4) })
+		local widths = { 0.34, 0.26, 0.1, 0.1, 0.1, 0.1 }
+		local x = 0
+		for i, text in ipairs(cells) do
+			label({ Size = UDim2.new(widths[i], -6, 1, -8), Position = UDim2.new(x, 6, 0, 4), Text = tostring(text), TextXAlignment = i <= 2 and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center, Font = bold and Enum.Font.GothamBlack or Enum.Font.GothamBold, ZIndex = 12, Parent = f })
+			x += widths[i]
+		end
+	end
+	local entries = { Blue = {}, Red = {} }
+	for _, e in ipairs(ctx.Roster:GetChildren()) do
+		local team = e:GetAttribute("Team")
+		if entries[team] then
+			table.insert(entries[team], e)
+		end
+	end
+	for team, list in pairs(entries) do
+		table.sort(list, function(a, b)
+			return (a:GetAttribute("Kills") or 0) > (b:GetAttribute("Kills") or 0)
+		end)
+		row(r.sbLists[team], 0, { string.upper(team) .. " TEAM", "HERO", "K", "D", "DMG", "HEAL" }, teamColor(team), true)
+		for i, e in ipairs(list) do
+			local hero = Heroes.Get(e:GetAttribute("Hero") or "")
+			local isMe = e.Name == tostring(player.UserId)
+			row(r.sbLists[team], i, {
+				(isMe and "▶ " or "") .. (e:GetAttribute("DisplayName") or e.Name),
+				hero and hero.name or "-",
+				e:GetAttribute("Kills") or 0,
+				e:GetAttribute("Deaths") or 0,
+				e:GetAttribute("Damage") or 0,
+				e:GetAttribute("Healing") or 0,
+			}, teamColor(team), false)
+		end
+	end
+end
+
+------------------------------------------------------------------ public API
+function HUD.HitMarker(kill)
+	for _, line in ipairs(r.hitLines) do
+		line.BackgroundColor3 = kill and Color3.fromRGB(255, 60, 60) or WHITE
+	end
+	r.hitMarker.Visible = true
+	local token = {}
+	r.hitToken = token
+	task.delay(0.12, function()
+		if r.hitToken == token then
+			r.hitMarker.Visible = false
+		end
+	end)
+end
+
+function HUD.Hurt()
+	r.flash.BackgroundTransparency = 0.82
+	TweenService:Create(r.flash, TweenInfo.new(0.35), { BackgroundTransparency = 1 }):Play()
+end
+
+local function pushFeed(richText)
+	r.feedCount += 1
+	local entry = make("Frame", { Size = UDim2.fromOffset(380, 26), BackgroundColor3 = DARK, BackgroundTransparency = 0.3, BorderSizePixel = 0, LayoutOrder = -r.feedCount, Parent = r.feed }, { corner(5) })
+	label({ Size = UDim2.new(1, -16, 1, -8), Position = UDim2.fromOffset(8, 4), Text = richText, RichText = true, TextXAlignment = Enum.TextXAlignment.Right, Parent = entry })
+	local items = {}
+	for _, child in ipairs(r.feed:GetChildren()) do
+		if child:IsA("Frame") then
+			table.insert(items, child)
+		end
+	end
+	table.sort(items, function(a, b)
+		return a.LayoutOrder < b.LayoutOrder
+	end)
+	for i = 7, #items do
+		items[i]:Destroy()
+	end
+	task.delay(7, function()
+		if entry.Parent then
+			entry:Destroy()
+		end
+	end)
+end
+
+function HUD.KillFeed(d)
+	local victim = string.format('<font color="%s">%s</font>', hex(teamColor(d.victimTeam)), d.victim)
+	if d.killer then
+		local killer = string.format('<font color="%s">%s</font>', hex(teamColor(d.killerTeam)), d.killer)
+		pushFeed(killer .. '  <font color="#BBBBBB">[' .. (d.source or "KO") .. "]</font>  " .. victim)
+	else
+		pushFeed(victim .. ' <font color="#BBBBBB">was eliminated</font>')
+	end
+end
+
+function HUD.UltCast(d)
+	pushFeed(string.format('<font color="%s">%s</font> <font color="#FFD95A"><b>%s!</b></font>', hex(teamColor(d.team)), d.name, string.upper(d.ability)))
+end
+
+function HUD.Announce(d)
+	r.announce.Text = d.text or ""
+	r.announce.TextColor3 = d.color or WHITE
+	r.announceSub.Text = d.sub or ""
+	for _, l in ipairs({ r.announce, r.announceSub }) do
+		l.TextTransparency = 0
+		l.TextStrokeTransparency = 0.3
+	end
+	local token = {}
+	r.announceToken = token
+	task.delay(2.8, function()
+		if r.announceToken == token then
+			for _, l in ipairs({ r.announce, r.announceSub }) do
+				TweenService:Create(l, TweenInfo.new(0.5), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+			end
+		end
+	end)
+end
+
+function HUD.AnnounceSmall(text)
+	r.small.Text = text
+	r.small.TextTransparency = 0
+	TweenService:Create(r.small, TweenInfo.new(1.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { TextTransparency = 1 }):Play()
+end
+
+function HUD.ShowDeath(d)
+	deathInfo = d
+end
+
+function HUD.ShowScoreboard(show)
+	scoreboardHeld = show
+	if show then
+		refreshScoreboard()
+	end
+end
+
+------------------------------------------------------------------ per-frame update
+local lastScoreboardRefresh = 0
+
+local function update()
+	local st = ctx.State
+	local s = st:GetAttribute("State") or "Waiting"
+	local now = Util.now()
+	local remaining = (st:GetAttribute("StateEnds") or 0) - now
+	local entry = ctx.MyEntry()
+	local myTeam = entry and entry:GetAttribute("Team")
+
+	-- objective
+	local blue, red = st:GetAttribute("BlueScore") or 0, st:GetAttribute("RedScore") or 0
+	r.blue.fill.Size = UDim2.fromScale(blue / 100, 1)
+	r.red.fill.Size = UDim2.fromScale(red / 100, 1)
+	r.blue.pct.Text = string.format("%d%%", math.floor(blue))
+	r.red.pct.Text = string.format("%d%%", math.floor(red))
+	r.blue.tag.Text = myTeam == "Blue" and "BLUE (YOU)" or "BLUE"
+	r.red.tag.Text = myTeam == "Red" and "RED (YOU)" or "RED"
+	for i = 1, Config.RoundsToWin do
+		r.blue.pips[i].BackgroundColor3 = (st:GetAttribute("BlueRounds") or 0) >= i and teamColor("Blue") or DARK
+		r.red.pips[i].BackgroundColor3 = (st:GetAttribute("RedRounds") or 0) >= i and teamColor("Red") or DARK
+	end
+	local owner = st:GetAttribute("PointOwner") or ""
+	local capTeam = st:GetAttribute("CaptureTeam") or ""
+	local capProgress = st:GetAttribute("CaptureProgress") or 0
+	local contested = st:GetAttribute("Contested")
+	r.pointStroke.Color = owner ~= "" and teamColor(owner) or WHITE
+	r.pointFill.BackgroundColor3 = capTeam ~= "" and teamColor(capTeam) or WHITE
+	r.pointFill.Size = UDim2.fromScale(1, capProgress / 100)
+	r.pointText.Text = capProgress > 0 and tostring(capProgress) or "A"
+
+	local stateText = ""
+	if s == "HeroSelect" then
+		stateText = "HERO SELECT  " .. clock(remaining)
+	elseif s == "Preparing" then
+		stateText = "ROUND " .. (st:GetAttribute("Round") or 1) .. " STARTS IN " .. clock(remaining)
+	elseif s == "InProgress" then
+		if contested then
+			local ownerScore = owner == "Blue" and blue or (owner == "Red" and red or 0)
+			stateText = ownerScore >= 99 and "OVERTIME" or "CONTESTED"
+		elseif owner == "" then
+			stateText = "CAPTURE THE POINT"
+		else
+			stateText = (owner == myTeam and "HOLD THE POINT" or "TAKE THE POINT BACK")
+		end
+	elseif s == "RoundEnd" then
+		stateText = "ROUND OVER"
+	elseif s == "MatchEnd" then
+		stateText = "NEXT MATCH IN " .. clock(remaining)
+	else
+		stateText = "WAITING FOR PLAYERS"
+	end
+	r.stateText.Text = stateText
+	r.stateText.TextColor3 = contested and Color3.fromRGB(255, 200, 80) or WHITE
+	local bOn, rOn = st:GetAttribute("BlueOnPoint") or 0, st:GetAttribute("RedOnPoint") or 0
+	r.onPoint.Text = s == "InProgress" and string.format('<font color="%s">%d</font>  on point  <font color="%s">%d</font>', hex(teamColor("Blue")), bOn, hex(teamColor("Red")), rOn) or ""
+
+	-- local hero
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local aliveNow = entry and entry:GetAttribute("Alive") and hum and hum.Health > 0
+	local hero = entry and Heroes.Get(entry:GetAttribute("Hero") or "")
+	r.healthPanel.Visible = aliveNow and hero ~= nil
+	r.abilityPanel.Visible = aliveNow and hero ~= nil
+	r.crosshair.Visible = aliveNow and not ctx.MenuOpen()
+	if aliveNow and hero then
+		r.heroName.Text = string.upper(hero.name)
+		r.heroRole.Text = string.upper(hero.role)
+		r.heroRole.TextColor3 = Config.RoleColors[hero.role]
+		local ratio = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+		r.hpFill.Size = UDim2.fromScale(ratio, 1)
+		r.hpFill.BackgroundColor3 = ratio < 0.3 and Color3.fromRGB(255, 80, 80) or Color3.fromRGB(240, 240, 240)
+		r.hpText.Text = string.format("%d / %d", math.ceil(hum.Health), hum.MaxHealth)
+
+		for _, slot in ipairs(Config.Slots) do
+			local ui = r.slots[slot]
+			local a = hero.abilities[slot]
+			ui.name.Text = a.name
+			if slot == "Ultimate" then
+				local ult = entry:GetAttribute("Ult") or 0
+				ui.overlay.Size = UDim2.fromScale(1, 1 - ult / 100)
+				ui.big.Text = ult >= 100 and "READY" or string.format("%d%%", math.floor(ult))
+				ui.stroke.Color = ult >= 100 and Color3.fromRGB(255, 215, 90) or WHITE
+				ui.stroke.Transparency = ult >= 100 and 0 or 0.5
+				ui.stroke.Thickness = ult >= 100 and 3 + math.sin(os.clock() * 8) or 2
+			elseif slot == "Primary" then
+				ui.overlay.Size = UDim2.fromScale(1, 0)
+				ui.big.Text = "●"
+			else
+				local ready = entry:GetAttribute("CD_" .. slot) or 0
+				local max = entry:GetAttribute("CDMax_" .. slot) or 1
+				local left = ready - now
+				if left > 0 then
+					ui.overlay.Size = UDim2.fromScale(1, math.clamp(left / max, 0, 1))
+					ui.big.Text = left >= 1 and tostring(math.ceil(left)) or string.format("%.1f", left)
+					ui.stroke.Transparency = 0.7
+				else
+					ui.overlay.Size = UDim2.fromScale(1, 0)
+					ui.big.Text = "✓"
+					ui.stroke.Transparency = 0.2
+				end
+			end
+		end
+		r.status.Text = entry:GetAttribute("Stunned") and "STUNNED" or ""
+	else
+		r.status.Text = ""
+	end
+
+	-- death screen
+	local showDeath = entry and hero and not aliveNow and (s == "InProgress" or s == "Preparing") and not ctx.MenuOpen()
+	r.death.Visible = showDeath == true
+	if showDeath then
+		local respawnAt = entry:GetAttribute("RespawnAt") or 0
+		local killerHero = deathInfo and deathInfo.killerHero and Heroes.Get(deathInfo.killerHero)
+		r.deathBy.Text = deathInfo and deathInfo.killer and ("by " .. deathInfo.killer .. (killerHero and (" (" .. killerHero.name .. ")") or "")) or ""
+		r.deathTimer.Text = respawnAt > now and ("RESPAWNING IN " .. math.ceil(respawnAt - now)) or "RESPAWNING..."
+	end
+
+	-- scoreboard & match end
+	local showBoard = scoreboardHeld or s == "MatchEnd"
+	r.scoreboard.Visible = showBoard and not ctx.MenuOpen()
+	if r.scoreboard.Visible and os.clock() - lastScoreboardRefresh > 0.5 then
+		lastScoreboardRefresh = os.clock()
+		refreshScoreboard()
+	end
+	if s == "MatchEnd" then
+		local winner = st:GetAttribute("Winner") or ""
+		r.matchEnd.Visible = true
+		r.matchEnd.Text = winner == myTeam and "VICTORY" or "DEFEAT"
+		r.matchEnd.TextColor3 = winner == myTeam and Color3.fromRGB(255, 215, 90) or Color3.fromRGB(255, 80, 80)
+		r.sbTitle.Text = string.upper(winner) .. " TEAM WINS THE MATCH"
+	else
+		r.matchEnd.Visible = false
+		r.sbTitle.Text = "SCOREBOARD"
+	end
+	r.objective.Visible = s ~= "HeroSelect" and s ~= "Waiting"
+end
+
+function HUD.Init(context)
+	ctx = context
+	gui = make("ScreenGui", { Name = "HUD", IgnoreGuiInset = true, ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 1, Parent = player:WaitForChild("PlayerGui") })
+	buildCrosshair()
+	buildObjective()
+	buildHealth()
+	buildAbilities()
+	buildKillfeed()
+	buildAnnounce()
+	buildDeath()
+	buildScoreboard()
+	buildMatchEnd()
+	buildHints()
+	local lastWarn = 0
+	RunService.RenderStepped:Connect(function()
+		local ok, err = pcall(update)
+		if not ok and os.clock() - lastWarn > 2 then
+			lastWarn = os.clock()
+			warn("HUD update error:", err)
+		end
+	end)
+end
+
+return HUD
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX20"><Properties><string name="Name">HeroSelect</string><ProtectedString name="Source"><![CDATA[-- Hero select screen (start of match, and mid-match swaps with H while in spawn / dead).
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Heroes = require(ReplicatedStorage.Shared.Heroes)
+local Util = require(ReplicatedStorage.Shared.Util)
+local make, corner, stroke = Util.make, Util.corner, Util.stroke
+
+local HeroSelect = {}
+
+local player = Players.LocalPlayer
+local ctx
+local gui, container
+local r = {}
+local isOpen, forced = false, false
+local selected = nil
+local cards = {}
+
+local DARK = Color3.fromRGB(14, 16, 24)
+local PANEL = Color3.fromRGB(26, 29, 40)
+local GOLD = Color3.fromRGB(255, 215, 90)
+
+local KIND_TEXT = {
+	hitscan = "Beam", projectile = "Projectile", melee = "Melee", dash = "Dash", cone = "Cone blast",
+	aoe = "Area burst", zone = "Zone", buff = "Buff", leapSlam = "Leap slam", grapple = "Grapple",
+	pull = "Pull", teleport = "Blink", wall = "Barrier", barrage = "Barrage",
+}
+
+local function label(props)
+	props.BackgroundTransparency = props.BackgroundTransparency or 1
+	props.Font = props.Font or Enum.Font.GothamBold
+	props.TextColor3 = props.TextColor3 or Color3.new(1, 1, 1)
+	if props.TextScaled == nil then
+		props.TextScaled = true
+	end
+	return make("TextLabel", props)
+end
+
+local function myEntry()
+	return ctx.MyEntry()
+end
+
+local function takenBy(heroId)
+	local entry = myEntry()
+	if not entry then
+		return nil
+	end
+	for _, e in ipairs(ctx.Roster:GetChildren()) do
+		if e ~= entry and e:GetAttribute("Team") == entry:GetAttribute("Team") and e:GetAttribute("Hero") == heroId and not e:GetAttribute("IsBot") then
+			return e:GetAttribute("DisplayName")
+		end
+	end
+	return nil
+end
+
+local function abilitySummary(a)
+	local parts = { KIND_TEXT[a.kind] or a.kind }
+	local dmg = a.damage or a.damagePerTick
+	if dmg then
+		table.insert(parts, (a.damagePerTick and (dmg .. "/tick") or tostring(dmg)) .. " dmg")
+	end
+	local heal = a.heal or a.healPerTick or a.healAllies
+	if heal then
+		table.insert(parts, (a.healPerTick and (heal .. "/tick") or tostring(heal)) .. " heal")
+	end
+	if a.stun then
+		table.insert(parts, "stun")
+	end
+	if a.slow then
+		table.insert(parts, "slow")
+	end
+	return table.concat(parts, " · ")
+end
+
+------------------------------------------------------------------ detail panel
+local function showDetails(hero)
+	selected = hero
+	for id, card in pairs(cards) do
+		card.stroke.Color = id == hero.id and Color3.new(1, 1, 1) or Color3.fromRGB(0, 0, 0)
+		card.stroke.Thickness = id == hero.id and 3 or 1
+	end
+	r.dName.Text = string.upper(hero.name)
+	r.dName.TextColor3 = hero.color:Lerp(Color3.new(1, 1, 1), 0.4)
+	r.dRole.Text = string.upper(hero.role) .. "   ·   " .. hero.health .. " HP   ·   SPEED " .. hero.speed
+	r.dRole.TextColor3 = Config.RoleColors[hero.role]
+	r.dDesc.Text = hero.description
+	for _, slot in ipairs(Config.Slots) do
+		local a = hero.abilities[slot]
+		local row = r.dAbilities[slot]
+		row.name.Text = a.name
+		local cd = slot == "Ultimate" and "100% charge" or (slot == "Primary" and "" or (a.cooldown .. "s cooldown"))
+		row.info.Text = abilitySummary(a) .. (cd ~= "" and ("   ·   " .. cd) or "")
+	end
+	local entry = myEntry()
+	local mine = entry and entry:GetAttribute("Hero") == hero.id
+	local taken = takenBy(hero.id)
+	r.lock.Text = mine and "LOCKED IN" or (taken and ("TAKEN BY " .. string.upper(taken)) or "LOCK IN")
+	r.lock.BackgroundColor3 = mine and GOLD or (taken and Color3.fromRGB(70, 70, 80) or hero.color)
+end
+
+------------------------------------------------------------------ build
+local function build()
+	gui = make("ScreenGui", { Name = "HeroSelect", IgnoreGuiInset = true, ResetOnSpawn = false, DisplayOrder = 10, Enabled = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = player:WaitForChild("PlayerGui") })
+	local bg = make("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = DARK, BackgroundTransparency = 0.08, Parent = gui })
+	make("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.fromRGB(40, 30, 70), Color3.fromRGB(10, 10, 16)), Parent = bg })
+
+	container = make("Frame", { Size = UDim2.fromOffset(1240, 640), Position = UDim2.fromScale(0.5, 0.5), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, Parent = gui })
+	local scale = make("UIScale", { Parent = container })
+	local function rescale()
+		local vp = workspace.CurrentCamera.ViewportSize
+		scale.Scale = math.min(1, vp.X / 1300, vp.Y / 700)
+	end
+	rescale()
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
+
+	r.title = label({ Size = UDim2.fromOffset(700, 48), Position = UDim2.fromOffset(0, 0), Text = "CHOOSE YOUR HERO", Font = Enum.Font.GothamBlack, TextXAlignment = Enum.TextXAlignment.Left, Parent = container })
+	r.subtitle = label({ Size = UDim2.fromOffset(700, 22), Position = UDim2.fromOffset(2, 52), Text = "", TextColor3 = Color3.fromRGB(200, 200, 220), TextXAlignment = Enum.TextXAlignment.Left, Parent = container })
+	label({ Size = UDim2.fromOffset(500, 22), Position = UDim2.new(1, 0, 0, 10), AnchorPoint = Vector2.new(1, 0), Text = Config.GameTitle, Font = Enum.Font.GothamBlack, TextColor3 = GOLD, TextXAlignment = Enum.TextXAlignment.Right, Parent = container })
+	r.close = make("TextButton", { Size = UDim2.fromOffset(110, 32), Position = UDim2.new(1, 0, 0, 44), AnchorPoint = Vector2.new(1, 0), Text = "CLOSE (H)", Font = Enum.Font.GothamBold, TextScaled = true, TextColor3 = Color3.new(1, 1, 1), BackgroundColor3 = PANEL, Parent = container }, { corner(6), make("UIPadding", { PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6) }) })
+	r.close.MouseButton1Click:Connect(function()
+		HeroSelect.Close()
+	end)
+
+	-- team panel
+	local team = make("Frame", { Size = UDim2.fromOffset(250, 540), Position = UDim2.fromOffset(0, 96), BackgroundColor3 = PANEL, BackgroundTransparency = 0.2, Parent = container }, { corner(10) })
+	r.teamTitle = label({ Size = UDim2.new(1, -20, 0, 24), Position = UDim2.fromOffset(10, 10), Text = "YOUR TEAM", Font = Enum.Font.GothamBlack, TextXAlignment = Enum.TextXAlignment.Left, Parent = team })
+	r.teamList = make("Frame", { Size = UDim2.new(1, -20, 1, -50), Position = UDim2.fromOffset(10, 42), BackgroundTransparency = 1, Parent = team })
+	make("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = r.teamList })
+
+	-- hero grid
+	local grid = make("Frame", { Size = UDim2.fromOffset(510, 540), Position = UDim2.fromOffset(270, 96), BackgroundTransparency = 1, Parent = container })
+	for col, role in ipairs(Config.RoleOrder) do
+		local x = (col - 1) * 170
+		label({ Size = UDim2.fromOffset(160, 24), Position = UDim2.fromOffset(x, 0), Text = string.upper(role) .. "S", Font = Enum.Font.GothamBlack, TextColor3 = Config.RoleColors[role], Parent = grid })
+		local row = 0
+		for _, hero in ipairs(Heroes.List) do
+			if hero.role == role then
+				local btn = make("TextButton", {
+					Size = UDim2.fromOffset(160, 158),
+					Position = UDim2.fromOffset(x, 34 + row * 168),
+					BackgroundColor3 = hero.color,
+					AutoButtonColor = true,
+					Text = "",
+					Parent = grid,
+				}, { corner(10) })
+				local s = stroke(Color3.new(0, 0, 0), 1, 0)
+				s.Parent = btn
+				make("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(90, 90, 110)), Parent = btn })
+				label({ Size = UDim2.new(1, 0, 0, 80), Position = UDim2.fromOffset(0, 18), Text = hero.outfit.emblem and hero.outfit.emblem.text or string.sub(hero.name, 1, 1), Font = Enum.Font.GothamBlack, TextColor3 = Color3.new(1, 1, 1), TextStrokeTransparency = 0.5, Parent = btn })
+				local nameBar = make("Frame", { Size = UDim2.new(1, 0, 0, 40), Position = UDim2.new(0, 0, 1, -40), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.35, Parent = btn }, { corner(10) })
+				label({ Size = UDim2.new(1, -12, 1, -14), Position = UDim2.fromOffset(6, 7), Text = string.upper(hero.name), Font = Enum.Font.GothamBlack, Parent = nameBar })
+				local takenLabel = label({ Size = UDim2.new(1, 0, 0, 22), Position = UDim2.fromOffset(0, 4), Text = "", TextColor3 = Color3.fromRGB(255, 255, 255), BackgroundColor3 = Color3.fromRGB(0, 0, 0), BackgroundTransparency = 1, Parent = btn })
+				btn.MouseEnter:Connect(function()
+					showDetails(hero)
+				end)
+				btn.MouseButton1Click:Connect(function()
+					showDetails(hero)
+				end)
+				cards[hero.id] = { button = btn, stroke = s, taken = takenLabel }
+				row += 1
+			end
+		end
+	end
+
+	-- detail panel
+	local detail = make("Frame", { Size = UDim2.fromOffset(440, 540), Position = UDim2.new(1, 0, 0, 96), AnchorPoint = Vector2.new(1, 0), BackgroundColor3 = PANEL, BackgroundTransparency = 0.15, Parent = container }, { corner(10) })
+	r.dName = label({ Size = UDim2.new(1, -40, 0, 44), Position = UDim2.fromOffset(20, 16), Text = "", Font = Enum.Font.GothamBlack, TextXAlignment = Enum.TextXAlignment.Left, Parent = detail })
+	r.dRole = label({ Size = UDim2.new(1, -40, 0, 18), Position = UDim2.fromOffset(20, 64), Text = "", TextXAlignment = Enum.TextXAlignment.Left, Parent = detail })
+	r.dDesc = label({ Size = UDim2.new(1, -40, 0, 60), Position = UDim2.fromOffset(20, 92), Text = "", TextScaled = false, TextSize = 16, TextWrapped = true, Font = Enum.Font.Gotham, TextColor3 = Color3.fromRGB(210, 210, 225), TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, Parent = detail })
+	r.dAbilities = {}
+	for i, slot in ipairs(Config.Slots) do
+		local y = 160 + (i - 1) * 70
+		local row = make("Frame", { Size = UDim2.new(1, -40, 0, 62), Position = UDim2.fromOffset(20, y), BackgroundColor3 = DARK, BackgroundTransparency = 0.3, Parent = detail }, { corner(8) })
+		local key = make("Frame", { Size = UDim2.fromOffset(62, 46), Position = UDim2.fromOffset(8, 8), BackgroundColor3 = slot == "Ultimate" and GOLD or Color3.fromRGB(60, 64, 80), Parent = row }, { corner(6) })
+		label({ Size = UDim2.new(1, -8, 1, -16), Position = UDim2.fromOffset(4, 8), Text = Config.SlotKeys[slot], Font = Enum.Font.GothamBlack, TextColor3 = slot == "Ultimate" and DARK or Color3.new(1, 1, 1), Parent = key })
+		local name = label({ Size = UDim2.new(1, -94, 0, 22), Position = UDim2.fromOffset(82, 8), Text = "", Font = Enum.Font.GothamBlack, TextXAlignment = Enum.TextXAlignment.Left, Parent = row })
+		local info = label({ Size = UDim2.new(1, -94, 0, 16), Position = UDim2.fromOffset(82, 36), Text = "", Font = Enum.Font.Gotham, TextColor3 = Color3.fromRGB(190, 190, 205), TextXAlignment = Enum.TextXAlignment.Left, Parent = row })
+		r.dAbilities[slot] = { name = name, info = info }
+	end
+	r.lock = make("TextButton", { Size = UDim2.new(1, -40, 0, 54), Position = UDim2.new(0, 20, 1, -72), Text = "LOCK IN", Font = Enum.Font.GothamBlack, TextScaled = true, TextColor3 = Color3.new(1, 1, 1), BackgroundColor3 = GOLD, Parent = detail }, { corner(8), make("UIPadding", { PaddingTop = UDim.new(0, 12), PaddingBottom = UDim.new(0, 12) }) })
+	r.error = label({ Size = UDim2.new(1, -40, 0, 18), Position = UDim2.new(0, 20, 1, -94), Text = "", TextColor3 = Color3.fromRGB(255, 110, 110), Parent = detail })
+	r.lock.MouseButton1Click:Connect(function()
+		if selected then
+			r.error.Text = ""
+			ctx.Remotes.PickHero:FireServer(selected.id)
+		end
+	end)
+end
+
+------------------------------------------------------------------ refresh loop
+local function refresh()
+	local entry = myEntry()
+	if not entry then
+		return
+	end
+	local myTeam = entry:GetAttribute("Team")
+	local teamColor = Config.Teams[myTeam] and Config.Teams[myTeam].Color or Color3.new(1, 1, 1)
+	r.teamTitle.Text = "YOUR TEAM  ·  " .. string.upper(myTeam or "")
+	r.teamTitle.TextColor3 = teamColor
+
+	for _, child in ipairs(r.teamList:GetChildren()) do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
+	local order = 0
+	for _, e in ipairs(ctx.Roster:GetChildren()) do
+		if e:GetAttribute("Team") == myTeam then
+			order += 1
+			local hero = Heroes.Get(e:GetAttribute("Hero") or "")
+			local isMe = e == entry
+			local row = make("Frame", { Size = UDim2.new(1, 0, 0, 48), BackgroundColor3 = hero and hero.color or Color3.fromRGB(50, 52, 64), BackgroundTransparency = 0.4, LayoutOrder = isMe and 0 or order, Parent = r.teamList }, { corner(6) })
+			if isMe then
+				stroke(GOLD, 2, 0).Parent = row
+			end
+			label({ Size = UDim2.new(1, -16, 0, 20), Position = UDim2.fromOffset(8, 5), Text = (e:GetAttribute("DisplayName") or e.Name), TextXAlignment = Enum.TextXAlignment.Left, Parent = row })
+			label({ Size = UDim2.new(1, -16, 0, 16), Position = UDim2.fromOffset(8, 27), Text = hero and (hero.name .. "  ·  " .. hero.role) or "Selecting...", Font = Enum.Font.Gotham, TextColor3 = Color3.fromRGB(220, 220, 230), TextXAlignment = Enum.TextXAlignment.Left, Parent = row })
+		end
+	end
+
+	if selected then
+		showDetails(selected)
+	end
+	local myHero = entry:GetAttribute("Hero")
+	for id, card in pairs(cards) do
+		local taken = takenBy(id)
+		card.taken.Text = id == myHero and "★ YOU" or (taken and "TAKEN" or "")
+		card.button.BackgroundTransparency = (taken and id ~= myHero) and 0.6 or 0
+		if id == myHero then
+			card.stroke.Color = GOLD
+			card.stroke.Thickness = 3
+		end
+	end
+
+	local s = ctx.State:GetAttribute("State")
+	if s == "HeroSelect" then
+		local left = math.max(0, math.ceil((ctx.State:GetAttribute("StateEnds") or 0) - Util.now()))
+		r.title.Text = "CHOOSE YOUR HERO"
+		r.subtitle.Text = "Match starts in " .. left .. "s  ·  3 Vanguards · 3 Duelists · 3 Strategists  ·  bots fill empty slots"
+	else
+		r.title.Text = forced and "CHOOSE YOUR HERO" or "SWAP HERO"
+		r.subtitle.Text = forced and "Pick a hero to join the fight" or "You can swap while dead or inside your spawn room"
+	end
+	r.close.Visible = not forced and s ~= "HeroSelect"
+end
+
+------------------------------------------------------------------ API
+function HeroSelect.IsOpen()
+	return isOpen
+end
+
+function HeroSelect.Open(force)
+	forced = force == true
+	isOpen = true
+	gui.Enabled = true
+	local entry = myEntry()
+	local current = entry and Heroes.Get(entry:GetAttribute("Hero") or "")
+	showDetails(current or selected or Heroes.List[1])
+	refresh()
+end
+
+function HeroSelect.Close()
+	if forced then
+		return
+	end
+	isOpen = false
+	gui.Enabled = false
+end
+
+function HeroSelect.Toggle()
+	local s = ctx.State:GetAttribute("State")
+	if s == "HeroSelect" or s == "Waiting" or s == "MatchEnd" then
+		return
+	end
+	if isOpen then
+		HeroSelect.Close()
+	else
+		HeroSelect.Open(false)
+	end
+end
+
+function HeroSelect.OnPickResult(d)
+	if d.ok then
+		r.error.Text = ""
+		forced = false
+		local s = ctx.State:GetAttribute("State")
+		if s ~= "HeroSelect" and isOpen then
+			HeroSelect.Close()
+		end
+	else
+		r.error.Text = d.reason or "Can't pick that hero"
+	end
+	if isOpen then
+		refresh()
+	end
+end
+
+function HeroSelect.Init(context)
+	ctx = context
+	build()
+	local function onState()
+		local s = ctx.State:GetAttribute("State")
+		if s == "HeroSelect" then
+			HeroSelect.Open(false)
+		elseif isOpen and not forced and gui.Enabled and r.lastState == "HeroSelect" then
+			isOpen = false
+			gui.Enabled = false
+		end
+		r.lastState = s
+	end
+	ctx.State:GetAttributeChangedSignal("State"):Connect(onState)
+	onState()
+	task.spawn(function()
+		while true do
+			task.wait(0.3)
+			if isOpen then
+				refresh()
+			end
+		end
+	end)
+end
+
+return HeroSelect
+]]></ProtectedString></Properties></Item><Item class="LocalScript" referent="RBX21"><Properties><string name="Name">Main</string><ProtectedString name="Source"><![CDATA[-- Client entry point: wires remotes to UI, effects and controls.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
+
+local player = Players.LocalPlayer
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local State = ReplicatedStorage:WaitForChild("MatchState")
+local Roster = ReplicatedStorage:WaitForChild("Roster")
+
+local Effects = require(script.Parent.Effects)
+local HUD = require(script.Parent.HUD)
+local HeroSelect = require(script.Parent.HeroSelect)
+local Controls = require(script.Parent.Controls)
+local Nameplates = require(script.Parent.Nameplates)
+
+for _, coreType in ipairs({ Enum.CoreGuiType.PlayerList, Enum.CoreGuiType.Health, Enum.CoreGuiType.Backpack }) do
+	pcall(function()
+		StarterGui:SetCoreGuiEnabled(coreType, false)
+	end)
+end
+
+local ctx = {
+	Remotes = Remotes,
+	State = State,
+	Roster = Roster,
+}
+
+function ctx.MyEntry()
+	return Roster:FindFirstChild(tostring(player.UserId))
+end
+
+function ctx.MenuOpen()
+	return HeroSelect.IsOpen()
+end
+
+function ctx.ToggleHeroSelect()
+	HeroSelect.Toggle()
+end
+
+function ctx.ShowScoreboard(show)
+	HUD.ShowScoreboard(show)
+end
+
+Effects.Init(ctx)
+HUD.Init(ctx)
+HeroSelect.Init(ctx)
+Controls.Init(ctx)
+Nameplates.Init(ctx)
+
+Remotes.FX.OnClientEvent:Connect(function(kind, data)
+	Effects.Handle(kind, data)
+end)
+
+Remotes.Notify.OnClientEvent:Connect(function(kind, data)
+	if kind == "hit" then
+		Effects.DamageNumber(data.pos, data.amount, data.heal, data.kill)
+		if not data.heal then
+			HUD.HitMarker(data.kill)
+		end
+	elseif kind == "hurt" then
+		HUD.Hurt()
+	elseif kind == "killfeed" then
+		HUD.KillFeed(data)
+	elseif kind == "announce" then
+		HUD.Announce(data)
+	elseif kind == "announceSmall" then
+		HUD.AnnounceSmall(data.text)
+	elseif kind == "death" then
+		HUD.ShowDeath(data)
+	elseif kind == "ultimate" then
+		HUD.UltCast(data)
+	elseif kind == "pickResult" then
+		HeroSelect.OnPickResult(data)
+	elseif kind == "openSelect" then
+		HeroSelect.Open(data and data.force)
+	elseif kind == "matchEnd" then
+		HUD.Announce({ text = string.upper(data.winner) .. " TEAM WINS!", color = Color3.fromRGB(255, 215, 90) })
+	end
+end)
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX22"><Properties><string name="Name">Nameplates</string><ProtectedString name="Source"><![CDATA[-- Name + health bars above every hero. Allies are visible through walls, enemies only in line of sight.
+local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Heroes = require(ReplicatedStorage.Shared.Heroes)
+local Util = require(ReplicatedStorage.Shared.Util)
+local make = Util.make
+
+local Nameplates = {}
+local ctx
+local plates = {}
+
+local function myTeam()
+	local entry = ctx.MyEntry()
+	return entry and entry:GetAttribute("Team")
+end
+
+local function attach(model)
+	if plates[model] or model == Players.LocalPlayer.Character then
+		return
+	end
+	local head = model:WaitForChild("Head", 5)
+	local humanoid = model:WaitForChild("Humanoid", 5)
+	if not head or not humanoid or not model.Parent then
+		return
+	end
+	local hero = Heroes.Get(model:GetAttribute("Hero") or "")
+	local gui = make("BillboardGui", {
+		Name = "Nameplate",
+		Size = UDim2.fromOffset(120, 34),
+		StudsOffset = Vector3.new(0, 2.8, 0),
+		MaxDistance = 160,
+		LightInfluence = 0,
+		Adornee = head,
+	})
+	local name = make("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 16),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.GothamBold,
+		TextScaled = true,
+		TextStrokeTransparency = 0.4,
+		Text = (model:GetAttribute("DisplayName") or model.Name) .. (hero and ("  ·  " .. hero.name) or ""),
+		Parent = gui,
+	})
+	local barBg = make("Frame", {
+		Position = UDim2.new(0, 0, 0, 19),
+		Size = UDim2.new(1, 0, 0, 8),
+		BackgroundColor3 = Color3.fromRGB(20, 20, 25),
+		BorderSizePixel = 0,
+		Parent = gui,
+	}, { Util.corner(3) })
+	local bar = make("Frame", {
+		Size = UDim2.fromScale(1, 1),
+		BorderSizePixel = 0,
+		Parent = barBg,
+	}, { Util.corner(3) })
+	gui.Parent = model
+
+	local plate = { gui = gui, name = name, bar = bar, humanoid = humanoid, model = model }
+	plates[model] = plate
+
+	local function refresh()
+		local h = humanoid.MaxHealth > 0 and humanoid.Health / humanoid.MaxHealth or 0
+		bar.Size = UDim2.fromScale(math.clamp(h, 0, 1), 1)
+		gui.Enabled = humanoid.Health > 0
+	end
+	humanoid.HealthChanged:Connect(refresh)
+	refresh()
+	Nameplates.Recolor(plate)
+	model.AncestryChanged:Connect(function()
+		if not model:IsDescendantOf(workspace) then
+			plates[model] = nil
+		end
+	end)
+end
+
+function Nameplates.Recolor(plate)
+	local team = plate.model:GetAttribute("Team")
+	local ally = team == myTeam()
+	local color = ally and Color3.fromRGB(110, 190, 255) or Color3.fromRGB(255, 90, 90)
+	if team and Config.Teams[team] and not ally then
+		color = Config.Teams[team].Color
+	end
+	plate.name.TextColor3 = color
+	plate.bar.BackgroundColor3 = color
+	plate.gui.AlwaysOnTop = ally
+end
+
+function Nameplates.Init(context)
+	ctx = context
+	CollectionService:GetInstanceAddedSignal("Combatant"):Connect(function(model)
+		task.spawn(attach, model)
+	end)
+	for _, model in ipairs(CollectionService:GetTagged("Combatant")) do
+		task.spawn(attach, model)
+	end
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			for model, plate in pairs(plates) do
+				if model.Parent then
+					Nameplates.Recolor(plate)
+				else
+					plates[model] = nil
+				end
+			end
+		end
+	end)
+end
+
+return Nameplates
+]]></ProtectedString></Properties></Item></Item></Item><Item class="StarterCharacterScripts" referent="RBX26"><Properties><string name="Name">StarterCharacterScripts</string></Properties><Item class="Script" referent="RBX25"><Properties><string name="Name">Health</string><ProtectedString name="Source"><![CDATA[-- Replaces the default "Health" regen script: healing only comes from Strategists and spawn rooms.
+]]></ProtectedString></Properties></Item></Item></Item></roblox>
